@@ -11,3 +11,6 @@
 	path = description/media
 	url = https://github.com/nasa/astrobee_media.git
 	shallow = true
+[submodule "uncertainty/ellis_util"]
+	path = uncertainty/ellis_util
+	url = git@github.com:eratner/ellis_util.git
