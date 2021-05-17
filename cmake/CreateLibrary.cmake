@@ -32,7 +32,8 @@ function(create_library)
   # Search for all the executables in tool dir
   file(GLOB SRC_FILES_C  "${library_DIR}/*.c")
   file(GLOB SRC_FILES_CC "${library_DIR}/*.cc")
-  set(SRC_FILES ${SRC_FILES_C} ${SRC_FILES_CC})
+  file(GLOB SRC_FILES_CPP "${library_DIR}/*.cpp")
+  set(SRC_FILES ${SRC_FILES_C} ${SRC_FILES_CC} ${SRC_FILES_CPP})
 
   # Sift through SRC_FILES and remove EXCLUDE
   foreach(SRC ${SRC_FILES})

@@ -637,6 +637,14 @@ Visualization Manager:
                 {}
               Queue Size: 100
               Value: true
+            - Class: rviz/Marker
+              Enabled: true
+              Marker Topic: /mob/planner_discrepancy/vis
+              Name: DiscrepancyPlannerVis
+              Namespaces:
+                {}
+              Queue Size: 100
+              Value: true
           Enabled: true
           Name: Mobility
       Enabled: true

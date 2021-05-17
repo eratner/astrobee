@@ -27,7 +27,8 @@ function(create_tool_targets)
   # Search for all the executables in tool dir
   file(GLOB TOOL_SRC_FILES_C  "${tool_DIR}/*.c")
   file(GLOB TOOL_SRC_FILES_CC "${tool_DIR}/*.cc")
-  set(TOOL_SRC_FILES ${TOOL_SRC_FILES_C} ${TOOL_SRC_FILES_CC})
+  file(GLOB TOOL_SRC_FILES_CPP "${tool_DIR}/*.cpp")
+  set(TOOL_SRC_FILES ${TOOL_SRC_FILES_C} ${TOOL_SRC_FILES_CC} ${TOOL_SRC_FILES_CPP})
 
   # Sift through SRC_FILES and remove EXCLUDE
   foreach(SRC ${TOOL_SRC_FILES})
@@ -57,7 +58,7 @@ function(create_tool_targets)
 
   # Link the executables!
   foreach(filename ${TOOL_SRC_FILES})
-    string(REGEX REPLACE ".(cc|c)$" "" execname ${filename})
+    string(REGEX REPLACE ".(cc|c|cpp)$" "" execname ${filename})
     string(REGEX REPLACE "^[^ ]*/" "" execname ${execname})
     add_executable(${execname} ${filename})
     target_link_libraries(${execname}

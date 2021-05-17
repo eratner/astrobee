@@ -58,8 +58,10 @@ docker run -it --rm --name astrobee \
         --user="astrobee" \
         --gpus all \
       astrobee/astrobee:latest-kinetic \
-    /astrobee_init.sh roslaunch astrobee sim.launch dds:=false
+      /astrobee_init.sh roslaunch astrobee sim.launch dds:=false default:=true world:=granite rviz:=true
 else
+    # UBUNTU 18.04
+    # NOTE: Replace "bash" with "roslaunch astrobee ..." (or vice versa) 
 docker run -it --rm --name astrobee \
         --volume=$XSOCK:$XSOCK:rw \
         --volume=$XAUTH:$XAUTH:rw \
@@ -67,5 +69,5 @@ docker run -it --rm --name astrobee \
         --env="DISPLAY" \
         --user="astrobee" \
       astrobee/astrobee:latest-melodic \
-    /astrobee_init.sh roslaunch astrobee sim.launch dds:=false
+      /astrobee_init.sh bash # roslaunch astrobee sim.launch default:=true world:=granite rviz:=true ground_truth_localizer:=true dds:=false robot:=sim_pub
 fi

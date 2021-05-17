@@ -1,0 +1,5 @@
+<launch>
+  <rosparam command="load" file="$(find discrepancy_planner)/config/experiment.yaml" />
+  <node pkg="discrepancy_planner" type="test_planner"
+        name="test_planner" output="screen" />
+</launch>

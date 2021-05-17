@@ -1,0 +1,7 @@
+<library path="lib/libdiscrepancy_planner">
+  <class name="discrepancy_planner/PlannerNodelet"
+         type="discrepancy_planner::PlannerNodelet"
+         base_class_type="nodelet::Nodelet">
+    <description>Nodelet for the discrepancy planner</description>
+  </class>
+</library>

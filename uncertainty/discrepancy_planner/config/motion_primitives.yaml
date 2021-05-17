@@ -1,0 +1,15 @@
+discrepancy_planner:
+  motion_primitives:
+    # Position.
+    - cost: 1
+      dim: low_d
+      vel_x: 10
+    - cost: 1
+      dim: low_d
+      vel_x: -10
+    - cost: 1
+      dim: low_d
+      vel_y: 10
+    - cost: 1
+      dim: low_d
+      vel_y: -10
