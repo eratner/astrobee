@@ -11,6 +11,8 @@
 #include <discrepancy_planner/rtaa.h>
 #include <discrepancy_planner/polynomial_trajectory.h>
 #include <visualization_msgs/Marker.h>
+#include <std_srvs/Trigger.h>
+#include <tf/transform_datatypes.h>
 
 namespace discrepancy_planner {
 
@@ -29,13 +31,17 @@ class PlannerNodelet : public planner::PlannerImplementation {
 
   void PlanCallback(ff_msgs::PlanGoal const& goal);
 
-  PolynomialTrajectory<kTrajectoryDim> PathToTrajectory(const std::vector<FreeFlyerStateSpace::State*>& path,
-                                                        double start_x, double start_y, double start_z,
-                                                        double start_yaw, double start_prox_angle,
-                                                        double start_dist_angle, double start_time_sec = 0);
+  PolynomialTrajectory<kTrajectoryDim> PathToTrajectory(
+    const std::vector<FreeFlyerStateSpace::State*>& path, double start_x,
+    double start_y, double start_z, double start_yaw, double start_prox_angle,
+    double start_dist_angle, double start_time_sec = 0);
 
-  double GetTimeBetweenWaypoints(const std::array<double, kTrajectoryDim>& first_waypoint,
-                                 const std::array<double, kTrajectoryDim>& second_waypoint) const;
+  double GetTimeBetweenWaypoints(
+    const std::array<double, kTrajectoryDim>& first_waypoint,
+    const std::array<double, kTrajectoryDim>& second_waypoint) const;
+
+  bool AddDiscrepancy(std_srvs::Trigger::Request& req,
+                      std_srvs::Trigger::Response& res);
 
   void PublishGoalMarker();
 
@@ -48,6 +54,8 @@ class PlannerNodelet : public planner::PlannerImplementation {
 
   ros::Publisher vis_pub_;
 
+  ros::ServiceServer add_discrepancy_srv_;
+
   double nominal_lin_vel_;
   double nominal_ang_vel_;
   double nominal_joint_vel_;
@@ -55,6 +63,8 @@ class PlannerNodelet : public planner::PlannerImplementation {
   FreeFlyerStateSpace* state_space_;
   ellis_util::search::Heuristic<FreeFlyerStateSpace::StateDim>* heuristic_;
   RTAA<FreeFlyerStateSpace::StateDim>* search_;
+  PolynomialTrajectory<kTrajectoryDim> last_trajectory_;
+  std::vector<FreeFlyerStateSpace::ActionIndex> last_actions_;
 };
 
 }  // namespace discrepancy_planner

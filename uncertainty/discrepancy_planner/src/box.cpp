@@ -2,9 +2,13 @@
 
 namespace discrepancy_planner {
 
-Box::Box(const Eigen::Vector3d& position, const Eigen::Quaterniond& orientation, double size_x, double size_y,
-         double size_z)
-    : position_(position), orientation_(orientation), size_x_(size_x), size_y_(size_y), size_z_(size_z) {}
+Box::Box(const Eigen::Vector3d& position, const Eigen::Quaterniond& orientation,
+         double size_x, double size_y, double size_z)
+    : position_(position),
+      orientation_(orientation),
+      size_x_(size_x),
+      size_y_(size_y),
+      size_z_(size_z) {}
 
 const Eigen::Vector3d& Box::GetPosition() const { return position_; }
 
@@ -12,10 +16,13 @@ void Box::SetPosition(const Eigen::Vector3d& position) { position_ = position; }
 
 const Eigen::Quaterniond& Box::GetOrientation() const { return orientation_; }
 
-void Box::SetOrientation(const Eigen::Quaterniond& orientation) { orientation_ = orientation; }
+void Box::SetOrientation(const Eigen::Quaterniond& orientation) {
+  orientation_ = orientation;
+}
 
 void Box::GetOrientationEuler(double& roll, double& pitch, double& yaw) const {
-  QuaternionToRPY(orientation_.x(), orientation_.y(), orientation_.z(), orientation_.w(), roll, pitch, yaw);
+  QuaternionToRPY(orientation_.x(), orientation_.y(), orientation_.z(),
+                  orientation_.w(), roll, pitch, yaw);
 }
 
 void Box::SetOrientationEuler(double roll, double pitch, double yaw) {
@@ -50,7 +57,8 @@ std::array<Eigen::Vector3d, 8> Box::GetCorners() const {
   corners[7] << 0.5 * size_x_, 0.5 * size_y_, -0.5 * size_z_;
 
   // Transform each of the corners into global coordinates.
-  for (auto& corner : corners) corner = orientation_.toRotationMatrix() * corner + position_;
+  for (auto& corner : corners)
+    corner = orientation_.toRotationMatrix() * corner + position_;
 
   return corners;
 }
@@ -73,15 +81,17 @@ std::array<LineSegment, 12> Box::GetEdges() const {
   edges[7] = LineSegment(corners[7], corners[4]);
 
   // Left / right sides.
-  edges[8] = LineSegment(corners[3], corners[4]);   // Top left back to front.
-  edges[9] = LineSegment(corners[0], corners[7]);   // Bottom left back to front.
+  edges[8] = LineSegment(corners[3], corners[4]);  // Top left back to front.
+  edges[9] = LineSegment(corners[0], corners[7]);  // Bottom left back to front.
   edges[10] = LineSegment(corners[2], corners[5]);  // Top right back to front.
-  edges[11] = LineSegment(corners[1], corners[6]);  // Bottom right back to front.
+  edges[11] =
+    LineSegment(corners[1], corners[6]);  // Bottom right back to front.
 
   return edges;
 }
 
-bool Box::Intersects(const Box& other, Eigen::Vector3d* min_translation_vec, std::array<Eigen::Vector3d, 2>* basis,
+bool Box::Intersects(const Box& other, Eigen::Vector3d* min_translation_vec,
+                     std::array<Eigen::Vector3d, 2>* basis,
                      std::vector<Eigen::Vector3d>* points, bool verbose) const {
   auto corners = GetCorners();
   auto other_corners = other.GetCorners();
@@ -154,18 +164,22 @@ bool Box::Intersects(const Box& other, Eigen::Vector3d* min_translation_vec, std
     auto proj = Proj(corners, axis);
     auto other_proj = Proj(other_corners, axis);
     if (verbose) {
-      std::cout << "Proj: (" << proj.first << ", " << proj.second << ")" << std::endl;
-      std::cout << "Other proj: (" << other_proj.first << ", " << other_proj.second << ")" << std::endl;
+      std::cout << "Proj: (" << proj.first << ", " << proj.second << ")"
+                << std::endl;
+      std::cout << "Other proj: (" << other_proj.first << ", "
+                << other_proj.second << ")" << std::endl;
     }
 
     double overlap = GetOverlap(proj, other_proj);
-    if (verbose) std::cout << "Overlap on axis " << idx << " is " << overlap << std::endl;
+    if (verbose)
+      std::cout << "Overlap on axis " << idx << " is " << overlap << std::endl;
 
     if (overlap <= 0) return false;
 
     if (overlap < min_overlap) {
       if (verbose) {
-        std::cout << "** New min overlap for axis " << idx << " with overlap " << overlap << std::endl;
+        std::cout << "** New min overlap for axis " << idx << " with overlap "
+                  << overlap << std::endl;
       }
       min_overlap = overlap;
       min_idx = idx;
@@ -188,7 +202,8 @@ bool Box::Intersects(const Box& other, Eigen::Vector3d* min_translation_vec, std
       *min_translation_vec = -(*min_translation_vec);
     }
 
-    std::cout << "MTV is axis " << min_idx << " with overlap " << min_overlap << std::endl;
+    std::cout << "MTV is axis " << min_idx << " with overlap " << min_overlap
+              << std::endl;
   }
 
   // Find the contact manifold (i.e. set of points representing contact).
@@ -228,7 +243,9 @@ bool Box::Intersects(const Box& other, Eigen::Vector3d* min_translation_vec, std
   return true;
 }
 
-std::pair<double, double> Box::Proj(const std::array<Eigen::Vector3d, 8>& corners, const Eigen::Vector3d& axis) const {
+std::pair<double, double> Box::Proj(
+  const std::array<Eigen::Vector3d, 8>& corners,
+  const Eigen::Vector3d& axis) const {
   std::pair<double, double> projection;
   projection.first = axis.dot(corners[0]);
   projection.second = projection.first;
@@ -244,8 +261,10 @@ std::pair<double, double> Box::Proj(const std::array<Eigen::Vector3d, 8>& corner
   return projection;
 }
 
-double Box::GetOverlap(const std::pair<double, double>& seg, const std::pair<double, double>& other_seg) const {
-  return std::max(0., std::min(seg.second, other_seg.second) - std::max(seg.first, other_seg.first));
+double Box::GetOverlap(const std::pair<double, double>& seg,
+                       const std::pair<double, double>& other_seg) const {
+  return std::max(0., std::min(seg.second, other_seg.second) -
+                        std::max(seg.first, other_seg.first));
 }
 
 }  // namespace discrepancy_planner

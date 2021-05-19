@@ -2,14 +2,20 @@
 
 namespace discrepancy_planner {
 
-LineSegment::LineSegment(const Eigen::Vector3d& first_point, const Eigen::Vector3d& second_point)
+LineSegment::LineSegment(const Eigen::Vector3d& first_point,
+                         const Eigen::Vector3d& second_point)
     : first_point_(first_point), second_point_(second_point) {}
 
-const Eigen::Vector3d& LineSegment::GetFirstPoint() const { return first_point_; }
+const Eigen::Vector3d& LineSegment::GetFirstPoint() const {
+  return first_point_;
+}
 
-const Eigen::Vector3d& LineSegment::GetSecondPoint() const { return second_point_; }
+const Eigen::Vector3d& LineSegment::GetSecondPoint() const {
+  return second_point_;
+}
 
-bool LineSegment::GetIntersection(const LineSegment& segment, Eigen::Vector3d& intersection) const {
+bool LineSegment::GetIntersection(const LineSegment& segment,
+                                  Eigen::Vector3d& intersection) const {
   intersection = Eigen::Vector3d::Zero();
 
   double t = -1.0;
@@ -39,7 +45,8 @@ bool LineSegment::GetIntersection(const LineSegment& segment, Eigen::Vector3d& i
   }
 
   if (t < 0 || t > 1) {
-    std::cout << "Intersection point is past the extents of the line segment" << std::endl;
+    std::cout << "Intersection point is past the extents of the line segment"
+              << std::endl;
     return false;
   }
 
@@ -48,7 +55,8 @@ bool LineSegment::GetIntersection(const LineSegment& segment, Eigen::Vector3d& i
   return true;
 }
 
-double LineSegment::GetClosestPoints(const LineSegment& segment, Eigen::Vector3d& point,
+double LineSegment::GetClosestPoints(const LineSegment& segment,
+                                     Eigen::Vector3d& point,
                                      Eigen::Vector3d& other_point) const {
   auto r0 = second_point_ - first_point_;
   auto r1 = segment.GetSecondPoint() - segment.GetFirstPoint();
@@ -75,7 +83,8 @@ double LineSegment::GetClosestPoints(const LineSegment& segment, Eigen::Vector3d
   return (point - other_point).norm();
 }
 
-Eigen::Vector3d LineSegment::GetClosestPoint(const Eigen::Vector3d& point) const {
+Eigen::Vector3d LineSegment::GetClosestPoint(
+  const Eigen::Vector3d& point) const {
   auto r = second_point_ - first_point_;
   double t = -(first_point_ - point).dot(r) / r.dot(r);
   if (t > 1.0)

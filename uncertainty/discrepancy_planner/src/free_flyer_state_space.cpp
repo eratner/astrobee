@@ -2,21 +2,29 @@
 
 namespace discrepancy_planner {
 
-FreeFlyerStateSpace::Discretizer::Discretizer(const std::array<double, StateDim>& disc) : disc_(disc) {}
+FreeFlyerStateSpace::Discretizer::Discretizer(
+  const std::array<double, StateDim>& disc)
+    : disc_(disc) {}
 
-int FreeFlyerStateSpace::Discretizer::Discretize(double value, unsigned int index) const {
+int FreeFlyerStateSpace::Discretizer::Discretize(double value,
+                                                 unsigned int index) const {
   return static_cast<int>(value / disc_[index]);
 }
 
-double FreeFlyerStateSpace::Discretizer::Undiscretize(int value, unsigned int index) const {
+double FreeFlyerStateSpace::Discretizer::Undiscretize(
+  int value, unsigned int index) const {
   return static_cast<double>(value) * disc_[index];
 }
 
-const std::array<double, FreeFlyerStateSpace::StateDim>& FreeFlyerStateSpace::Discretizer::GetDiscretization() const {
+const std::array<double, FreeFlyerStateSpace::StateDim>&
+FreeFlyerStateSpace::Discretizer::GetDiscretization() const {
   return disc_;
 }
 
-void FreeFlyerStateSpace::Discretizer::SetDiscretization(const std::array<double, StateDim>& disc) { disc_ = disc; }
+void FreeFlyerStateSpace::Discretizer::SetDiscretization(
+  const std::array<double, StateDim>& disc) {
+  disc_ = disc;
+}
 
 std::string FreeFlyerStateSpace::DimensionalityToStr(Dimensionality dim) {
   switch (dim) {
@@ -30,8 +38,9 @@ std::string FreeFlyerStateSpace::DimensionalityToStr(Dimensionality dim) {
   return "";
 }
 
-FreeFlyerStateSpace::MotionPrimitive::MotionPrimitive(int id, CostType cost, Dimensionality dim, int vel_x, int vel_y,
-                                                      int vel_z, int vel_yaw, int vel_prox_angle, int vel_dist_angle)
+FreeFlyerStateSpace::MotionPrimitive::MotionPrimitive(
+  int id, CostType cost, Dimensionality dim, int vel_x, int vel_y, int vel_z,
+  int vel_yaw, int vel_prox_angle, int vel_dist_angle)
     : id_(id),
       cost_(cost),
       dim_(dim),
@@ -62,18 +71,23 @@ std::string FreeFlyerStateSpace::VariableIndexToStr(VariableIndex index) {
   return "";
 }
 
-FreeFlyerStateSpace::FreeFlyerStateSpace(const Eigen::Matrix<double, 4, 4>& goal_in_world, double goal_dist_thresh,
-                                         double goal_angle_thresh, const Discretizer& discretizer)
+FreeFlyerStateSpace::FreeFlyerStateSpace(
+  const Eigen::Matrix<double, 4, 4>& goal_in_world, double goal_dist_thresh,
+  double goal_angle_thresh, const Discretizer& discretizer)
     : discretizer_(discretizer),
       goal_dist_thresh_(goal_dist_thresh),
       goal_angle_thresh_(goal_angle_thresh),
-      variable_lower_bound_(DefaultValueArray<int, StateDim>(std::numeric_limits<int>::min())),
-      variable_upper_bound_(DefaultValueArray<int, StateDim>(std::numeric_limits<int>::max())) {
+      variable_lower_bound_(
+        DefaultValueArray<int, StateDim>(std::numeric_limits<int>::min())),
+      variable_upper_bound_(
+        DefaultValueArray<int, StateDim>(std::numeric_limits<int>::max())) {
   // TODO All of the below should be loaded in via parameters.
   // NOTE Adding margin.
   const double robot_collision_margin = 0.1;
-  robot_collision_body_ = Box(Eigen::Vector3d::Zero(), Eigen::Quaterniond::Identity(), 0.32 + robot_collision_margin,
-                              0.32 + robot_collision_margin, 0.32 + robot_collision_margin);
+  robot_collision_body_ =
+    Box(Eigen::Vector3d::Zero(), Eigen::Quaterniond::Identity(),
+        0.32 + robot_collision_margin, 0.32 + robot_collision_margin,
+        0.32 + robot_collision_margin);
 
   // Set the goal pose in the world frame.
   goal_pos_in_world_ = goal_in_world.block<3, 1>(0, 3);
@@ -86,17 +100,29 @@ FreeFlyerStateSpace::FreeFlyerStateSpace(const Eigen::Matrix<double, 4, 4>& goal
 
 FreeFlyerStateSpace::~FreeFlyerStateSpace() {}
 
-const FreeFlyerStateSpace::Discretizer& FreeFlyerStateSpace::GetDiscretizer() const { return discretizer_; }
+const FreeFlyerStateSpace::Discretizer& FreeFlyerStateSpace::GetDiscretizer()
+  const {
+  return discretizer_;
+}
 
-double FreeFlyerStateSpace::GetGoalDistThresh() const { return goal_dist_thresh_; }
+double FreeFlyerStateSpace::GetGoalDistThresh() const {
+  return goal_dist_thresh_;
+}
 
-void FreeFlyerStateSpace::SetGoalDistThresh(double thresh) { goal_dist_thresh_ = thresh; }
+void FreeFlyerStateSpace::SetGoalDistThresh(double thresh) {
+  goal_dist_thresh_ = thresh;
+}
 
-double FreeFlyerStateSpace::GetGoalAngleThresh() const { return goal_angle_thresh_; }
+double FreeFlyerStateSpace::GetGoalAngleThresh() const {
+  return goal_angle_thresh_;
+}
 
-void FreeFlyerStateSpace::SetGoalAngleThresh(double thresh) { goal_angle_thresh_ = thresh; }
+void FreeFlyerStateSpace::SetGoalAngleThresh(double thresh) {
+  goal_angle_thresh_ = thresh;
+}
 
-void FreeFlyerStateSpace::SetGoalPose(const Eigen::Matrix<double, 4, 4>& goal_in_world) {
+void FreeFlyerStateSpace::SetGoalPose(
+  const Eigen::Matrix<double, 4, 4>& goal_in_world) {
   goal_pos_in_world_ = goal_in_world.block<3, 1>(0, 3);
   Eigen::Quaterniond goal_in_world_rot(goal_in_world.block<3, 3>(0, 0));
   auto euler = goal_in_world_rot.toRotationMatrix().eulerAngles(2, 1, 0);
@@ -105,7 +131,9 @@ void FreeFlyerStateSpace::SetGoalPose(const Eigen::Matrix<double, 4, 4>& goal_in
   goal_roll_ = euler[2];
 }
 
-void FreeFlyerStateSpace::GetGoalPose(double& x, double& y, double& z, double& roll, double& pitch, double& yaw) const {
+void FreeFlyerStateSpace::GetGoalPose(double& x, double& y, double& z,
+                                      double& roll, double& pitch,
+                                      double& yaw) const {
   x = goal_pos_in_world_(0);
   y = goal_pos_in_world_(1);
   z = goal_pos_in_world_(2);
@@ -114,15 +142,19 @@ void FreeFlyerStateSpace::GetGoalPose(double& x, double& y, double& z, double& r
   yaw = goal_yaw_;
 }
 
-bool FreeFlyerStateSpace::IsGoalPose(double x, double y, double z, double roll, double pitch, double yaw,
-                                     double prox_angle, double dist_angle) const {
+bool FreeFlyerStateSpace::IsGoalPose(double x, double y, double z, double roll,
+                                     double pitch, double yaw,
+                                     double prox_angle,
+                                     double dist_angle) const {
   // Check tolerance on the distance from the goal.
   Eigen::Vector3d pos_in_world(x, y, z);
-  if ((goal_pos_in_world_ - pos_in_world).norm() > goal_dist_thresh_) return false;
+  if ((goal_pos_in_world_ - pos_in_world).norm() > goal_dist_thresh_)
+    return false;
 
   // TODO Should we be more careful about checking the angles?
   // Check tolerance on angles from goal.
-  if (std::abs(goal_roll_ - roll) > goal_angle_thresh_ || std::abs(goal_pitch_ - pitch) > goal_angle_thresh_ ||
+  if (std::abs(goal_roll_ - roll) > goal_angle_thresh_ ||
+      std::abs(goal_pitch_ - pitch) > goal_angle_thresh_ ||
       std::abs(goal_yaw_ - yaw) > goal_angle_thresh_)
     return false;
 
@@ -135,8 +167,11 @@ bool FreeFlyerStateSpace::IsGoal(const Variables& variables) const {
   return IsGoalPose(x, y, z, roll, pitch, yaw, prox_angle, dist_angle);
 }
 
-void FreeFlyerStateSpace::GetPose(const Variables& variables, double& x, double& y, double& z, double& roll,
-                                  double& pitch, double& yaw, double& prox_angle, double& dist_angle) const {
+void FreeFlyerStateSpace::GetPose(const Variables& variables, double& x,
+                                  double& y, double& z, double& roll,
+                                  double& pitch, double& yaw,
+                                  double& prox_angle,
+                                  double& dist_angle) const {
   x = discretizer_.Undiscretize(variables[X], X);
   y = discretizer_.Undiscretize(variables[Y], Y);
   z = discretizer_.Undiscretize(variables[Z], Z);
@@ -147,8 +182,9 @@ void FreeFlyerStateSpace::GetPose(const Variables& variables, double& x, double&
   dist_angle = discretizer_.Undiscretize(variables[DIST_ANGLE], DIST_ANGLE);
 }
 
-FreeFlyerStateSpace::State* FreeFlyerStateSpace::GetState(double x, double y, double z, double roll, double pitch,
-                                                          double yaw, double prox_angle, double dist_angle) {
+FreeFlyerStateSpace::State* FreeFlyerStateSpace::GetState(
+  double x, double y, double z, double roll, double pitch, double yaw,
+  double prox_angle, double dist_angle) {
   Variables variables;
   variables[X] = discretizer_.Discretize(x, X);
   variables[Y] = discretizer_.Discretize(y, Y);
@@ -160,7 +196,8 @@ FreeFlyerStateSpace::State* FreeFlyerStateSpace::GetState(double x, double y, do
   return StateSpace<StateDim>::GetState(variables);
 }
 
-std::vector<FreeFlyerStateSpace::ActionIndex> FreeFlyerStateSpace::GetActions(const State* state) const {
+std::vector<FreeFlyerStateSpace::ActionIndex> FreeFlyerStateSpace::GetActions(
+  const State* state) const {
   std::vector<ActionIndex> actions;
 
   // Add actions depending on the dimensionality of the state.
@@ -174,7 +211,8 @@ std::vector<FreeFlyerStateSpace::ActionIndex> FreeFlyerStateSpace::GetActions(co
   return actions;
 }
 
-std::tuple<std::vector<FreeFlyerStateSpace::State*>, std::vector<FreeFlyerStateSpace::CostType>,
+std::tuple<std::vector<FreeFlyerStateSpace::State*>,
+           std::vector<FreeFlyerStateSpace::CostType>,
            std::vector<FreeFlyerStateSpace::ProbabilityType>>
 FreeFlyerStateSpace::GetSucc(const State* state, ActionIndex action) {
   std::vector<State*> succs;
@@ -209,20 +247,25 @@ FreeFlyerStateSpace::GetSucc(const State* state, ActionIndex action) {
       probs = {1.0};
     }
   } else {
-    ROS_ERROR_STREAM("[FreeFlyerStateSpace::GetSucc] Invalid action " << action << "!");
+    ROS_ERROR_STREAM("[FreeFlyerStateSpace::GetSucc] Invalid action " << action
+                                                                      << "!");
   }
 
   return std::make_tuple(succs, costs, probs);
 }
 
-bool FreeFlyerStateSpace::InCollisionBetween(const Variables& state_variables, const Variables& succ_variables) {
+bool FreeFlyerStateSpace::InCollisionBetween(const Variables& state_variables,
+                                             const Variables& succ_variables) {
   // High-D collision checking.
-  double state_x, state_y, state_z, state_roll, state_pitch, state_yaw, state_prox_angle, state_dist_angle;
-  GetPose(state_variables, state_x, state_y, state_z, state_roll, state_pitch, state_yaw, state_prox_angle,
-          state_dist_angle);
+  double state_x, state_y, state_z, state_roll, state_pitch, state_yaw,
+    state_prox_angle, state_dist_angle;
+  GetPose(state_variables, state_x, state_y, state_z, state_roll, state_pitch,
+          state_yaw, state_prox_angle, state_dist_angle);
 
-  double succ_x, succ_y, succ_z, succ_roll, succ_pitch, succ_yaw, succ_prox_angle, succ_dist_angle;
-  GetPose(succ_variables, succ_x, succ_y, succ_z, succ_roll, succ_pitch, succ_yaw, succ_prox_angle, succ_dist_angle);
+  double succ_x, succ_y, succ_z, succ_roll, succ_pitch, succ_yaw,
+    succ_prox_angle, succ_dist_angle;
+  GetPose(succ_variables, succ_x, succ_y, succ_z, succ_roll, succ_pitch,
+          succ_yaw, succ_prox_angle, succ_dist_angle);
 
   const int num_checks = 2;  // TODO Make a parameter
   for (int i = 0; i <= num_checks; ++i) {
@@ -239,10 +282,13 @@ bool FreeFlyerStateSpace::InCollisionBetween(const Variables& state_variables, c
     double sample_roll = state_roll + p * (succ_roll - state_roll);
     double sample_pitch = state_pitch + p * (succ_pitch - state_pitch);
     double sample_yaw = state_yaw + p * (succ_yaw - state_yaw);
-    double sample_prox_angle = state_prox_angle + p * (succ_prox_angle - state_prox_angle);
-    double sample_dist_angle = state_dist_angle + p * (succ_dist_angle - state_dist_angle);
+    double sample_prox_angle =
+      state_prox_angle + p * (succ_prox_angle - state_prox_angle);
+    double sample_dist_angle =
+      state_dist_angle + p * (succ_dist_angle - state_dist_angle);
 
-    const auto& robot_body = GetRobotCollisionBody(sample_x, sample_y, sample_z, sample_roll, sample_pitch, sample_yaw);
+    const auto& robot_body = GetRobotCollisionBody(
+      sample_x, sample_y, sample_z, sample_roll, sample_pitch, sample_yaw);
 
     // Check for collisions between the robot and other bodies
     // (non-moveable).
@@ -257,28 +303,38 @@ bool FreeFlyerStateSpace::InCollisionBetween(const Variables& state_variables, c
   return false;
 }
 
-const Box& FreeFlyerStateSpace::GetRobotCollisionBody(double x, double y, double z, double roll, double pitch,
+const Box& FreeFlyerStateSpace::GetRobotCollisionBody(double x, double y,
+                                                      double z, double roll,
+                                                      double pitch,
                                                       double yaw) {
   robot_collision_body_.SetPosition(Eigen::Vector3d(x, y, z));
   robot_collision_body_.SetOrientationEuler(roll, pitch, yaw);
   return robot_collision_body_;
 }
 
-const std::vector<Box>& FreeFlyerStateSpace::GetWorldCollisionBodies() const { return world_collision_bodies_; }
+const std::vector<Box>& FreeFlyerStateSpace::GetWorldCollisionBodies() const {
+  return world_collision_bodies_;
+}
 
-void FreeFlyerStateSpace::AddWorldCollisionBody(const Box& body) { world_collision_bodies_.push_back(body); }
+void FreeFlyerStateSpace::AddWorldCollisionBody(const Box& body) {
+  world_collision_bodies_.push_back(body);
+}
 
-void FreeFlyerStateSpace::SetVariableLowerBound(unsigned int index, double bound) {
+void FreeFlyerStateSpace::SetVariableLowerBound(unsigned int index,
+                                                double bound) {
   if (index >= StateDim) {
-    ROS_ERROR_STREAM("[SetVariableLowerBound] Error: index " << index << " is not valid!");
+    ROS_ERROR_STREAM("[SetVariableLowerBound] Error: index "
+                     << index << " is not valid!");
     return;
   }
   variable_lower_bound_[index] = discretizer_.Discretize(bound, index);
 }
 
-void FreeFlyerStateSpace::SetVariableUpperBound(unsigned int index, double bound) {
+void FreeFlyerStateSpace::SetVariableUpperBound(unsigned int index,
+                                                double bound) {
   if (index >= StateDim) {
-    ROS_ERROR_STREAM("[SetVariableUpperBound] Error: index " << index << " is not valid!");
+    ROS_ERROR_STREAM("[SetVariableUpperBound] Error: index "
+                     << index << " is not valid!");
     return;
   }
   variable_upper_bound_[index] = discretizer_.Discretize(bound, index);
@@ -289,18 +345,22 @@ bool FreeFlyerStateSpace::IsInBounds(unsigned int index, int value) {
     ROS_ERROR_STREAM("[IsInBounds] Error: index " << index << " is not valid!");
     return false;
   }
-  return (variable_lower_bound_[index] <= value && value <= variable_upper_bound_[index]);
+  return (variable_lower_bound_[index] <= value &&
+          value <= variable_upper_bound_[index]);
 }
 
-const std::vector<FreeFlyerStateSpace::MotionPrimitive>& FreeFlyerStateSpace::GetMotionPrimitives() const {
+const std::vector<FreeFlyerStateSpace::MotionPrimitive>&
+FreeFlyerStateSpace::GetMotionPrimitives() const {
   return motion_primitives_;
 }
 
-void FreeFlyerStateSpace::SetMotionPrimitives(const std::vector<FreeFlyerStateSpace::MotionPrimitive>& primitives) {
+void FreeFlyerStateSpace::SetMotionPrimitives(
+  const std::vector<FreeFlyerStateSpace::MotionPrimitive>& primitives) {
   motion_primitives_ = primitives;
 }
 
-bool FreeFlyerStateSpace::LoadMotionPrimitives(const XmlRpc::XmlRpcValue& param) {
+bool FreeFlyerStateSpace::LoadMotionPrimitives(
+  const XmlRpc::XmlRpcValue& param) {
   motion_primitives_.clear();
   int id = 0;
   for (int i = 0; i < param.size(); ++i) {
@@ -310,7 +370,8 @@ bool FreeFlyerStateSpace::LoadMotionPrimitives(const XmlRpc::XmlRpcValue& param)
     m.id_ = id;
 
     if (!prim.hasMember("cost")) {
-      ROS_WARN_STREAM("Warning: motion primitive " << i << " has no cost specified!");
+      ROS_WARN_STREAM("Warning: motion primitive "
+                      << i << " has no cost specified!");
       continue;
     }
 
@@ -319,12 +380,14 @@ bool FreeFlyerStateSpace::LoadMotionPrimitives(const XmlRpc::XmlRpcValue& param)
     else if (prim["cost"].getType() == XmlRpc::XmlRpcValue::TypeDouble)
       m.cost_ = static_cast<double>(prim["cost"]);
     else {
-      ROS_WARN_STREAM("Warning: motion primitive " << i << " has invalid cost type!");
+      ROS_WARN_STREAM("Warning: motion primitive "
+                      << i << " has invalid cost type!");
       continue;
     }
 
     if (!prim.hasMember("dim")) {
-      ROS_WARN_STREAM("Warning: motion primitive " << i << " has no dimensionality specified!");
+      ROS_WARN_STREAM("Warning: motion primitive "
+                      << i << " has no dimensionality specified!");
       continue;
     }
 
@@ -335,17 +398,21 @@ bool FreeFlyerStateSpace::LoadMotionPrimitives(const XmlRpc::XmlRpcValue& param)
       else if (dim_str == DimensionalityToStr(HIGH_D))
         m.dim_ = HIGH_D;
       else {
-        ROS_WARN_STREAM("Warning: motion primitive " << i << " has invalid dim \"" << dim_str << "\"");
+        ROS_WARN_STREAM("Warning: motion primitive "
+                        << i << " has invalid dim \"" << dim_str << "\"");
         continue;
       }
     } else {
-      ROS_WARN_STREAM("Warning: motion primitive " << i << " has invalid dim type!");
+      ROS_WARN_STREAM("Warning: motion primitive " << i
+                                                   << " has invalid dim type!");
       continue;
     }
 
     for (unsigned int k = 0; k <= DIST_ANGLE; ++k) {
-      std::string name = "vel_" + VariableIndexToStr(static_cast<VariableIndex>(k));
-      std::transform(name.begin(), name.end(), name.begin(), [](unsigned char c) { return std::tolower(c); });
+      std::string name =
+        "vel_" + VariableIndexToStr(static_cast<VariableIndex>(k));
+      std::transform(name.begin(), name.end(), name.begin(),
+                     [](unsigned char c) { return std::tolower(c); });
 
       int input = -1;
       if (prim.hasMember(name)) {
@@ -354,7 +421,8 @@ bool FreeFlyerStateSpace::LoadMotionPrimitives(const XmlRpc::XmlRpcValue& param)
         else if (prim[name].getType() == XmlRpc::XmlRpcValue::TypeDouble)
           input = static_cast<double>(prim[name]);
         else {
-          ROS_ERROR_STREAM("Motion primitive " << i << " has invalid " << name << " type!");
+          ROS_ERROR_STREAM("Motion primitive " << i << " has invalid " << name
+                                               << " type!");
           return false;
         }
       } else
@@ -385,14 +453,17 @@ bool FreeFlyerStateSpace::LoadMotionPrimitives(const XmlRpc::XmlRpcValue& param)
       }
     }
 
-    ROS_INFO_STREAM("  vel_x: " << m.vel_x_ << ", vel_y: " << m.vel_y_ << ", vel_z: " << m.vel_z_
-                                << ", vel_yaw: " << m.vel_yaw_ << ", vel_prox_angle: " << m.vel_prox_angle_
+    ROS_INFO_STREAM("  vel_x: " << m.vel_x_ << ", vel_y: " << m.vel_y_
+                                << ", vel_z: " << m.vel_z_
+                                << ", vel_yaw: " << m.vel_yaw_
+                                << ", vel_prox_angle: " << m.vel_prox_angle_
                                 << ", vel_dist_angle: " << m.vel_dist_angle_);
 
     motion_primitives_.push_back(m);
     id++;
   }
-  ROS_INFO_STREAM("Successfully loaded " << motion_primitives_.size() << " motion primitives");
+  ROS_INFO_STREAM("Successfully loaded " << motion_primitives_.size()
+                                         << " motion primitives");
   return true;
 }
 

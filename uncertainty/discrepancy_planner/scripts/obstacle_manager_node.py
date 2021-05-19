@@ -37,7 +37,8 @@ class ObstacleManager:
             return False
         self._obstacles = rospy.get_param('~obstacles')
 
-        self.spawn_obstacles()
+        if not self.spawn_obstacles():
+            rospy.logwarn("[ObstacleManager] Failed to spawn some obstacles")
 
         self._model_states_sub = rospy.Subscriber(
             gazebo_ns + "/model_states", ModelStates,

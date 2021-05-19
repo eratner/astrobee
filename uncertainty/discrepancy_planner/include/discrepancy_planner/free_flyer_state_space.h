@@ -15,7 +15,8 @@ class FreeFlyerStateSpace : public StateSpace<kFreeFlyerStateDim> {
   static constexpr unsigned int StateDim = kFreeFlyerStateDim;
 
   typedef ellis_util::search::State<StateDim> State;
-  typedef typename ellis_util::search::State<StateDim>::VariableType VariableType;
+  typedef
+    typename ellis_util::search::State<StateDim>::VariableType VariableType;
   typedef std::array<VariableType, StateDim> Variables;
   typedef typename StateSpace<StateDim>::ActionIndex ActionIndex;
   typedef typename StateSpace<StateDim>::CostType CostType;
@@ -24,7 +25,8 @@ class FreeFlyerStateSpace : public StateSpace<kFreeFlyerStateDim> {
   // Converts from continuous to discrete values, and back.
   class Discretizer {
    public:
-    Discretizer(const std::array<double, StateDim>& disc = DefaultValueArray<double, StateDim>(0.01));
+    Discretizer(const std::array<double, StateDim>& disc =
+                  DefaultValueArray<double, StateDim>(0.01));
 
     int Discretize(double value, unsigned int index) const;
 
@@ -45,8 +47,10 @@ class FreeFlyerStateSpace : public StateSpace<kFreeFlyerStateDim> {
   // TODO HighDimensionalRegion
 
   struct MotionPrimitive {
-    MotionPrimitive(int id = -1, CostType cost = StateSpace<StateDim>::INFINITE_COST, Dimensionality dim = HIGH_D,
-                    int vel_x = 0, int vel_y = 0, int vel_z = 0, int vel_yaw = 0, int vel_prox_angle = 0,
+    MotionPrimitive(int id = -1,
+                    CostType cost = StateSpace<StateDim>::INFINITE_COST,
+                    Dimensionality dim = HIGH_D, int vel_x = 0, int vel_y = 0,
+                    int vel_z = 0, int vel_yaw = 0, int vel_prox_angle = 0,
                     int vel_dist_angle = 0);
 
     int id_;
@@ -65,8 +69,10 @@ class FreeFlyerStateSpace : public StateSpace<kFreeFlyerStateDim> {
 
   static std::string VariableIndexToStr(VariableIndex index);
 
-  FreeFlyerStateSpace(const Eigen::Matrix<double, 4, 4>& goal_in_world = Eigen::Matrix<double, 4, 4>::Identity(),
-                      double goal_dist_thresh = 0.05, double goal_angle_thresh = 0.05,
+  FreeFlyerStateSpace(const Eigen::Matrix<double, 4, 4>& goal_in_world =
+                        Eigen::Matrix<double, 4, 4>::Identity(),
+                      double goal_dist_thresh = 0.05,
+                      double goal_angle_thresh = 0.05,
                       const Discretizer& discretizer = Discretizer());
 
   virtual ~FreeFlyerStateSpace();
@@ -83,27 +89,32 @@ class FreeFlyerStateSpace : public StateSpace<kFreeFlyerStateDim> {
 
   void SetGoalPose(const Eigen::Matrix<double, 4, 4>& goal_in_world);
 
-  void GetGoalPose(double& x, double& y, double& z, double& roll, double& pitch, double& yaw) const;
+  void GetGoalPose(double& x, double& y, double& z, double& roll, double& pitch,
+                   double& yaw) const;
 
-  bool IsGoalPose(double x, double y, double z, double roll, double pitch, double yaw, double prox_angle,
-                  double dist_angle) const;
+  bool IsGoalPose(double x, double y, double z, double roll, double pitch,
+                  double yaw, double prox_angle, double dist_angle) const;
 
   bool IsGoal(const Variables& variables) const;
 
-  void GetPose(const Variables& variables, double& x, double& y, double& z, double& roll, double& pitch, double& yaw,
-               double& prox_angle, double& dist_angle) const;
+  void GetPose(const Variables& variables, double& x, double& y, double& z,
+               double& roll, double& pitch, double& yaw, double& prox_angle,
+               double& dist_angle) const;
 
-  State* GetState(double x, double y, double z, double roll, double pitch, double yaw, double prox_angle,
-                  double dist_angle);
+  State* GetState(double x, double y, double z, double roll, double pitch,
+                  double yaw, double prox_angle, double dist_angle);
 
   std::vector<ActionIndex> GetActions(const State* state) const;
 
-  std::tuple<std::vector<State*>, std::vector<CostType>, std::vector<ProbabilityType>> GetSucc(const State* state,
-                                                                                               ActionIndex action);
+  std::tuple<std::vector<State*>, std::vector<CostType>,
+             std::vector<ProbabilityType>>
+  GetSucc(const State* state, ActionIndex action);
 
-  bool InCollisionBetween(const Variables& state_variables, const Variables& succ_variables);
+  bool InCollisionBetween(const Variables& state_variables,
+                          const Variables& succ_variables);
 
-  const Box& GetRobotCollisionBody(double x, double y, double z, double roll, double pitch, double yaw);
+  const Box& GetRobotCollisionBody(double x, double y, double z, double roll,
+                                   double pitch, double yaw);
 
   const std::vector<Box>& GetWorldCollisionBodies() const;
 

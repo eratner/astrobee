@@ -3,11 +3,13 @@
 namespace discrepancy_planner {
 
 Eigen::Quaterniond RPYToQuaternion(double roll, double pitch, double yaw) {
-  return Eigen::AngleAxisd(roll, Eigen::Vector3d::UnitX()) * Eigen::AngleAxisd(pitch, Eigen::Vector3d::UnitY()) *
+  return Eigen::AngleAxisd(roll, Eigen::Vector3d::UnitX()) *
+         Eigen::AngleAxisd(pitch, Eigen::Vector3d::UnitY()) *
          Eigen::AngleAxisd(yaw, Eigen::Vector3d::UnitZ());
 }
 
-void QuaternionToRPY(double x, double y, double z, double w, double& roll, double& pitch, double& yaw) {
+void QuaternionToRPY(double x, double y, double z, double w, double& roll,
+                     double& pitch, double& yaw) {
   Eigen::Quaterniond q(w, x, y, z);
   auto euler = q.toRotationMatrix().eulerAngles(0, 1, 2);
   roll = euler[0];
@@ -15,7 +17,8 @@ void QuaternionToRPY(double x, double y, double z, double w, double& roll, doubl
   yaw = euler[2];
 }
 
-bool YawForZeroRollAndPitch(double roll, double pitch, double yaw, double& yaw_out, double threshold) {
+bool YawForZeroRollAndPitch(double roll, double pitch, double yaw,
+                            double& yaw_out, double threshold) {
   auto actual_rot = RPYToQuaternion(roll, pitch, yaw);
 
   bool minimize_angle_error = (threshold < 0);
@@ -25,7 +28,8 @@ bool YawForZeroRollAndPitch(double roll, double pitch, double yaw, double& yaw_o
   double candidate_yaw = yaw;
   auto candidate_rot = RPYToQuaternion(0, 0, candidate_yaw);
   auto diff = actual_rot.inverse() * candidate_rot;
-  double angle = angles::normalize_angle(2 * std::atan2(diff.vec().norm(), diff.w()));
+  double angle =
+    angles::normalize_angle(2 * std::atan2(diff.vec().norm(), diff.w()));
   if (minimize_angle_error && std::abs(angle) < min_angle_error) {
     min_angle_error = std::abs(angle);
     min_angle_error_yaw = candidate_yaw;

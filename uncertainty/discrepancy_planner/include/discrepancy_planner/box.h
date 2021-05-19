@@ -13,8 +13,8 @@ namespace discrepancy_planner {
 class Box {
  public:
   Box(const Eigen::Vector3d& position = Eigen::Vector3d::Zero(),
-      const Eigen::Quaterniond& orientation = Eigen::Quaterniond::Identity(), double size_x = 0, double size_y = 0,
-      double size_z = 0);
+      const Eigen::Quaterniond& orientation = Eigen::Quaterniond::Identity(),
+      double size_x = 0, double size_y = 0, double size_z = 0);
 
   // Returns the position of the center of the box.
   const Eigen::Vector3d& GetPosition() const;
@@ -49,13 +49,17 @@ class Box {
   std::array<LineSegment, 12> GetEdges() const;
 
   // Checks for the intersection with this box and another box.
-  bool Intersects(const Box& other, Eigen::Vector3d* min_translation_vec = nullptr,
-                  std::array<Eigen::Vector3d, 2>* basis = nullptr, std::vector<Eigen::Vector3d>* points = nullptr,
+  bool Intersects(const Box& other,
+                  Eigen::Vector3d* min_translation_vec = nullptr,
+                  std::array<Eigen::Vector3d, 2>* basis = nullptr,
+                  std::vector<Eigen::Vector3d>* points = nullptr,
                   bool verbose = false) const;
 
-  std::pair<double, double> Proj(const std::array<Eigen::Vector3d, 8>& corners, const Eigen::Vector3d& axis) const;
+  std::pair<double, double> Proj(const std::array<Eigen::Vector3d, 8>& corners,
+                                 const Eigen::Vector3d& axis) const;
 
-  double GetOverlap(const std::pair<double, double>& seg, const std::pair<double, double>& other_seg) const;
+  double GetOverlap(const std::pair<double, double>& seg,
+                    const std::pair<double, double>& other_seg) const;
 
  private:
   Eigen::Vector3d position_;
