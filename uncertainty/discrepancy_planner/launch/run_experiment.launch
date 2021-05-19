@@ -1,5 +1,8 @@
 <launch>
-  <rosparam command="load" file="$(find discrepancy_planner)/config/experiment.yaml" />
-  <node pkg="discrepancy_planner" type="test_planner"
-        name="test_planner" output="screen" />
+  <rosparam command="load"
+            file="$(find discrepancy_planner)/config/experiment.yaml" />
+  <node pkg="discrepancy_planner" type="run_experiment"
+        name="run_experiment" output="screen" />
+  <node pkg="discrepancy_planner" type="obstacle_manager_node.py"
+        name="obstacle_manager" output="screen" />
 </launch>

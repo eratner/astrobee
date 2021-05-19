@@ -60,11 +60,10 @@ void ConnectedCallback(ff_util::FreeFlyerActionClient<ff_msgs::MotionAction>* mo
   goal.command = ff_msgs::MotionGoal::MOVE;
   geometry_msgs::PoseStamped state;
   state.header.stamp = ros::Time::now();
-  state.pose.position.x = nh->param<double>("discrepancy_planner/experiment/goal/x", 0);
-  state.pose.position.y = nh->param<double>("discrepancy_planner/experiment/goal/y", 0);
-  state.pose.position.z = nh->param<double>("discrepancy_planner/experiment/goal/z", -0.675);
-  auto orien =
-    discrepancy_planner::RPYToQuaternion(0, 0, nh->param<double>("discrepancy_planner/experiment/goal/yaw", 0));
+  state.pose.position.x = nh->param<double>("discrepancy_planner/goal/x", 0);
+  state.pose.position.y = nh->param<double>("discrepancy_planner/goal/y", 0);
+  state.pose.position.z = nh->param<double>("discrepancy_planner/goal/z", -0.675);
+  auto orien = discrepancy_planner::RPYToQuaternion(0, 0, nh->param<double>("discrepancy_planner/goal/yaw", 0));
   state.pose.orientation.x = orien.x();
   state.pose.orientation.y = orien.y();
   state.pose.orientation.z = orien.z();
@@ -76,7 +75,7 @@ void ConnectedCallback(ff_util::FreeFlyerActionClient<ff_msgs::MotionAction>* mo
 }
 
 int main(int argc, char* argv[]) {
-  ros::init(argc, argv, "test_planner", ros::init_options::AnonymousName);
+  ros::init(argc, argv, "run_experiment", ros::init_options::AnonymousName);
 
   ros::NodeHandle nh;
   ff_util::ConfigClient cfg(&nh, NODE_CHOREOGRAPHER);
