@@ -13,3 +13,10 @@ discrepancy_planner:
     - cost: 1
       dim: low_d
       vel_y: -10
+    # Orientation (yaw).
+    - cost: 1
+      dim: high_d
+      vel_yaw: 10
+    - cost: 1
+      dim: high_d
+      vel_yaw: -10

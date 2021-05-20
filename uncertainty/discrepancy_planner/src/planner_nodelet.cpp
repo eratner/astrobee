@@ -189,9 +189,18 @@ void PlannerNodelet::PlanCallback(ff_msgs::PlanGoal const& goal) {
     return PlanResult(result);
   }
 
+  double start_x_on_graph, start_y_on_graph, start_z_on_graph,
+    start_yaw_on_graph;
+  MapPoseToSearchGraph(start_pose.position.x, start_pose.position.y,
+                       start_pose.position.z, start_yaw, start_x_on_graph,
+                       start_y_on_graph, start_z_on_graph, start_yaw_on_graph);
+
   auto start_state = state_space_->GetState(
     start_pose.position.x, start_pose.position.y, start_pose.position.z,
     start_roll, start_pitch, start_yaw, 0, 0);
+  // auto start_state =
+  //   state_space_->GetState(start_x_on_graph, start_y_on_graph, start_z_on_graph,
+  //                          0, 0, start_yaw_on_graph, 0, 0);
   NODELET_WARN_STREAM("Planning from start state "
                       << *start_state << ", with heuristic cost-to-go "
                       << heuristic_->Value(start_state));
@@ -210,6 +219,10 @@ void PlannerNodelet::PlanCallback(ff_msgs::PlanGoal const& goal) {
   auto path = std::get<0>(path_and_actions);
   auto actions = std::get<1>(path_and_actions);
   NODELET_WARN_STREAM("Found path to goal with cost " << path_cost << ":");
+  for (int i = 0; i < path.size(); ++i) {
+    NODELET_WARN_STREAM("  At state: " << *path[i]
+                                       << ", taking action: " << actions[i]);
+  }
 
   PublishPathMarker(path);
 
@@ -285,6 +298,45 @@ void PlannerNodelet::PlanCallback(ff_msgs::PlanGoal const& goal) {
   PlanResult(result);
 }
 
+void PlannerNodelet::MapPoseToSearchGraph(double x_in, double y_in, double z_in,
+                                          double yaw_in, double& x_out,
+                                          double& y_out, double& z_out,
+                                          double& yaw_out) const {
+  // TODO Make parameters/read from motion primitives
+  const int units_per_transition_x = 10;
+  const int units_per_transition_y = 10;
+  const int units_per_transition_z = 10;
+  const int units_per_transition_yaw = 10;
+
+  // Map x onto the search graph.
+  x_out =
+    MapToSearchGraph(x_in, FreeFlyerStateSpace::X, units_per_transition_x);
+
+  // Map y onto the search graph.
+  y_out =
+    MapToSearchGraph(y_in, FreeFlyerStateSpace::Y, units_per_transition_y);
+
+  // Map z onto the search graph.
+  z_out =
+    MapToSearchGraph(z_in, FreeFlyerStateSpace::Z, units_per_transition_z);
+
+  // Map yaw onto the search graph.
+  yaw_out = MapToSearchGraph(yaw_in, FreeFlyerStateSpace::YAW,
+                             units_per_transition_yaw);
+}
+
+double PlannerNodelet::MapToSearchGraph(
+  double value, FreeFlyerStateSpace::VariableIndex variable,
+  int units_per_transition) const {
+  int value_disc = state_space_->GetDiscretizer().Discretize(value, variable);
+  value_disc = (value_disc / units_per_transition) * units_per_transition;
+  // value_disc =
+  //   static_cast<int>(std::round(1.0 * value_disc /
+  //                               static_cast<double>(units_per_transition))) *
+  //   units_per_transition;
+  return state_space_->GetDiscretizer().Undiscretize(value_disc, variable);
+}
+
 PolynomialTrajectory<kTrajectoryDim> PlannerNodelet::PathToTrajectory(
   const std::vector<FreeFlyerStateSpace::State*>& path, double start_x,
   double start_y, double start_z, double start_yaw, double start_prox_angle,
@@ -330,6 +382,21 @@ PolynomialTrajectory<kTrajectoryDim> PlannerNodelet::PathToTrajectory(
     nominal_joint_vel_,  // proximal angle
     nominal_joint_vel_   // distal angle
   };
+
+  NODELET_INFO("Trajectory waypoints: ");
+  for (int i = 0; i < waypoints.size(); ++i) {
+    const auto& waypoint = waypoints[i];
+    NODELET_INFO_STREAM("  pos: ("
+                        << waypoint[FreeFlyerStateSpace::X] << ", "
+                        << waypoint[FreeFlyerStateSpace::Y] << ", "
+                        << waypoint[FreeFlyerStateSpace::Z]
+                        << "), yaw: " << waypoint[FreeFlyerStateSpace::YAW]
+                        << ", prox angle: "
+                        << waypoint[FreeFlyerStateSpace::PROX_ANGLE]
+                        << ", dist angle: "
+                        << waypoint[FreeFlyerStateSpace::DIST_ANGLE]
+                        << ", time: " << waypoint_times[i]);
+  }
 
   return PolynomialTrajectory<kTrajectoryDim>(waypoints, waypoint_times, vels);
 }
@@ -387,32 +454,59 @@ bool PlannerNodelet::AddDiscrepancy(std_srvs::Trigger::Request& req,
     return false;
   }
 
+  NODELET_WARN_STREAM("Attempting to add discrepancy at robot pos: ("
+                      << pose.position.x << ", " << pose.position.y << ", "
+                      << pose.position.z
+                      << "), yaw: " << tf::getYaw(pose.orientation) << "...");
+
   // Search for the point in the trajectory at which the discrepancy occured,
   // based on where the robot currently is.
+  const auto& segments = last_trajectory_.GetSegments();
+  if (segments.size() <= 1) {
+    NODELET_ERROR("Last trajectory was empty");
+    return false;
+  }
+
+  // Get the start and end times of the trajectory.
+  // NOTE Here we assume the discrepancy does not occur on the trajectory's
+  // first segment (the first segment connects the start pose of the robot to
+  // the first pose on the path, to account for discretizatione errors).
+  double start_time = segments[1].start_time_;
+  double end_time = segments.back().end_time_;
+
   // TODO Read from config
   double time_between_waypoints = 0.1;
 
-  double start_time, end_time;
-  if (!last_trajectory_.GetStartTime(start_time) ||
-      !last_trajectory_.GetEndTime(end_time)) {
-    // TODO Output error
-    return false;
+  std::vector<double> waypoint_times;
+  double time = start_time + time_between_waypoints;
+  while (time <= end_time) {
+    waypoint_times.push_back(time);
+    time += time_between_waypoints;
   }
 
   int best_segment_index = -1;
   double best_dist = 1e9;
 
-  double time = start_time;
-  while (time <= end_time) {
+  for (auto waypoint_time : waypoint_times) {
     std::array<double, kTrajectoryDim> pos;
     int segment_index = -1;
-    if (last_trajectory_.Get(time, pos, 0, &segment_index)) {
+    if (last_trajectory_.Get(waypoint_time, pos, 0, &segment_index)) {
       double dist =
         std::sqrt(std::pow(pos[FreeFlyerStateSpace::X] - pose.position.x, 2) +
                   std::pow(pos[FreeFlyerStateSpace::Y] - pose.position.y, 2) +
                   std::pow(pos[FreeFlyerStateSpace::Z] - pose.position.z, 2));
-      double ang_dist = angles::shortest_angular_distance(
-        tf::getYaw(pose.orientation), pos[FreeFlyerStateSpace::YAW]);
+      double ang_dist = std::abs(angles::shortest_angular_distance(
+        tf::getYaw(pose.orientation), pos[FreeFlyerStateSpace::YAW]));
+      NODELET_DEBUG_STREAM("  pos: ("
+                           << pos[FreeFlyerStateSpace::X] << ", "
+                           << pos[FreeFlyerStateSpace::Y] << ", "
+                           << pos[FreeFlyerStateSpace::Z]
+                           << "), yaw: " << pos[FreeFlyerStateSpace::YAW]
+                           << ", dist: " << dist << ", ang dist: " << ang_dist
+                           << ", segment: " << segment_index
+                           << ", best dist: " << best_dist
+                           << ", best segment: " << best_segment_index
+                           << ", time: " << waypoint_time);
       // TODO Also check arm joint angles
       if (dist + ang_dist < best_dist) {
         best_dist = dist + ang_dist;
@@ -420,9 +514,7 @@ bool PlannerNodelet::AddDiscrepancy(std_srvs::Trigger::Request& req,
       }
     } else
       NODELET_ERROR_STREAM("Could not get waypoint in trajectory at time "
-                           << time);
-
-    time += time_between_waypoints;
+                           << waypoint_time);
   }
 
   if (best_segment_index - 1 < 0 ||
@@ -435,7 +527,10 @@ bool PlannerNodelet::AddDiscrepancy(std_srvs::Trigger::Request& req,
     return false;
   }
   auto action = last_actions_[best_segment_index - 1];
-  NODELET_WARN_STREAM("Discrepancy at action " << action);
+  NODELET_WARN_STREAM("Discrepancy at action "
+                      << action << " (best segment index is "
+                      << best_segment_index << ", with combined distance "
+                      << best_dist << ")");
 
   // Add a discrepancy neighborhood around the current state and action to the
   // planner's state space.
@@ -547,9 +642,9 @@ void PlannerNodelet::PublishDiscrepancyMarkers() {
     discrepancy_msg.pose.orientation.z = 0;
     discrepancy_msg.pose.orientation.w = 1;
     discrepancy_msg.color.r = 0;
-    discrepancy_msg.color.g = 1;
+    discrepancy_msg.color.g = 0;
     discrepancy_msg.color.b = 1;
-    discrepancy_msg.color.a = 0.5;
+    discrepancy_msg.color.a = 0.25;
     discrepancy_msg.scale.x = discrepancy.radius_.pos_;
     discrepancy_msg.scale.y = discrepancy.radius_.pos_;
     discrepancy_msg.scale.z = discrepancy.radius_.pos_;

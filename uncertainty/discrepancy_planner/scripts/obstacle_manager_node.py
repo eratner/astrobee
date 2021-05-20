@@ -143,10 +143,10 @@ class ObstacleManager:
             obstacle_msg.scale.x = o['size']['x']
             obstacle_msg.scale.y = o['size']['y']
             obstacle_msg.scale.z = o['size']['z']
-            obstacle_msg.color.r = 1
-            obstacle_msg.color.g = 0
-            obstacle_msg.color.b = 0
-            obstacle_msg.color.a = 0.5
+            obstacle_msg.color.r = 0.75
+            obstacle_msg.color.g = 0.75
+            obstacle_msg.color.b = 0.75
+            obstacle_msg.color.a = 0.75
             self._vis_pub.publish(obstacle_msg)
 
     def run(self):

@@ -281,6 +281,8 @@ class PolynomialTrajectory {
     return PolynomialTrajectory(segments, return_boundary_waypoints_);
   }
 
+  const std::vector<Segment>& GetSegments() const { return segments_; }
+
  private:
   std::vector<Segment> segments_;
   bool return_boundary_waypoints_;

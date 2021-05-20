@@ -31,6 +31,14 @@ class PlannerNodelet : public planner::PlannerImplementation {
 
   void PlanCallback(ff_msgs::PlanGoal const& goal);
 
+  void MapPoseToSearchGraph(double x_in, double y_in, double z_in,
+                            double yaw_in, double& x_out, double& y_out,
+                            double& z_out, double& yaw_out) const;
+
+  double MapToSearchGraph(double value,
+                          FreeFlyerStateSpace::VariableIndex variable,
+                          int units_per_transition) const;
+
   PolynomialTrajectory<kTrajectoryDim> PathToTrajectory(
     const std::vector<FreeFlyerStateSpace::State*>& path, double start_x,
     double start_y, double start_z, double start_yaw, double start_prox_angle,
