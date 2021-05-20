@@ -141,7 +141,7 @@ class Experiment {
               // TODO ...
             }
 
-            state_ = DONE;  // TODO
+            state_ = REPLAN_NEEDED;
             break;
           }
           default:

@@ -133,6 +133,8 @@ void PlannerNodelet::PlanCallback(ff_msgs::PlanGoal const& goal) {
     return PlanResult(result);
   }
 
+  PublishDiscrepancyMarkers();
+
   // Set the goal state.
   // TODO Check if the goal state has changed-- if it has, need to clear the
   // state space
@@ -435,7 +437,25 @@ bool PlannerNodelet::AddDiscrepancy(std_srvs::Trigger::Request& req,
   auto action = last_actions_[best_segment_index - 1];
   NODELET_WARN_STREAM("Discrepancy at action " << action);
 
-  // TODO Add discrepancy to planner
+  // Add a discrepancy neighborhood around the current state and action to the
+  // planner's state space.
+  FreeFlyerStateSpace::DiscrepancyNeighborhood discrepancy;
+  discrepancy.penalty_ = cfg_.Get<double>("discrepancy_penalty");
+  discrepancy.radius_.pos_ = cfg_.Get<double>("discrepancy_radius_pos");
+  discrepancy.radius_.orien_ = cfg_.Get<double>("discrepancy_radius_orien");
+  discrepancy.radius_.prox_angle_ =
+    cfg_.Get<double>("discrepancy_radius_prox_angle");
+  discrepancy.radius_.dist_angle_ =
+    cfg_.Get<double>("discrepancy_radius_dist_angle");
+
+  discrepancy.action_ = action;
+  discrepancy.state_.x_ = pose.position.x;
+  discrepancy.state_.y_ = pose.position.y;
+  discrepancy.state_.z_ = pose.position.z;
+  discrepancy.state_.yaw_ = tf::getYaw(pose.orientation);
+  discrepancy.state_.prox_angle_ = 0;  // TODO
+  discrepancy.state_.dist_angle_ = 0;  // TODO
+  state_space_->AddDiscrepancy(discrepancy);
 
   res.success = true;
   return true;
@@ -506,6 +526,35 @@ void PlannerNodelet::PublishPathMarker(
   }
 
   vis_pub_.publish(path_msg);
+}
+
+void PlannerNodelet::PublishDiscrepancyMarkers() {
+  const auto& discrepancies = state_space_->GetDiscrepancies();
+  for (int i = 0; i < discrepancies.size(); ++i) {
+    const auto& discrepancy = discrepancies[i];
+
+    visualization_msgs::Marker discrepancy_msg;
+    discrepancy_msg.header.frame_id = std::string(FRAME_NAME_WORLD);
+    discrepancy_msg.ns = "discrepancy_planner/discrepancy";
+    discrepancy_msg.id = i;
+    discrepancy_msg.type = visualization_msgs::Marker::SPHERE;
+
+    discrepancy_msg.pose.position.x = discrepancy.state_.x_;
+    discrepancy_msg.pose.position.y = discrepancy.state_.y_;
+    discrepancy_msg.pose.position.z = discrepancy.state_.z_;
+    discrepancy_msg.pose.orientation.x = 0;
+    discrepancy_msg.pose.orientation.y = 0;
+    discrepancy_msg.pose.orientation.z = 0;
+    discrepancy_msg.pose.orientation.w = 1;
+    discrepancy_msg.color.r = 0;
+    discrepancy_msg.color.g = 1;
+    discrepancy_msg.color.b = 1;
+    discrepancy_msg.color.a = 0.5;
+    discrepancy_msg.scale.x = discrepancy.radius_.pos_;
+    discrepancy_msg.scale.y = discrepancy.radius_.pos_;
+    discrepancy_msg.scale.z = discrepancy.radius_.pos_;
+    vis_pub_.publish(discrepancy_msg);
+  }
 }
 
 }  // namespace discrepancy_planner

@@ -69,6 +69,33 @@ class FreeFlyerStateSpace : public StateSpace<kFreeFlyerStateDim> {
 
   static std::string VariableIndexToStr(VariableIndex index);
 
+  struct DiscrepancyNeighborhood {
+    CostType
+      penalty_;  // Penalty for transitions passing thru this neighborhood.
+    struct {
+      double x_;
+      double y_;
+      double z_;
+      double yaw_;
+      double prox_angle_;
+      double dist_angle_;
+    } state_;             // State at which discrepancy occurred.
+    ActionIndex action_;  // Action at which discrepancy occurred.
+
+    struct {
+      double pos_;
+      double orien_;
+      double prox_angle_;
+      double dist_angle_;
+    } radius_;  // Radius defining the neighborhood around the (state, action)
+                // transition at which the discrepancy occurred.
+
+    // Returns true if this discrepancy neighborhood contains the transition
+    // given by the `state` and `action`.
+    bool Contains(const Discretizer& discretizer, const State* state,
+                  ActionIndex action) const;
+  };
+
   FreeFlyerStateSpace(const Eigen::Matrix<double, 4, 4>& goal_in_world =
                         Eigen::Matrix<double, 4, 4>::Identity(),
                       double goal_dist_thresh = 0.05,
@@ -132,6 +159,14 @@ class FreeFlyerStateSpace : public StateSpace<kFreeFlyerStateDim> {
 
   bool LoadMotionPrimitives(const XmlRpc::XmlRpcValue& param);
 
+  CostType GetPenalty(const State* state, ActionIndex action) const;
+
+  void AddDiscrepancy(const DiscrepancyNeighborhood& discrepancy);
+
+  const std::vector<DiscrepancyNeighborhood>& GetDiscrepancies() const;
+
+  void ClearDiscrepancies();
+
  protected:
   Discretizer discretizer_;
 
@@ -153,6 +188,8 @@ class FreeFlyerStateSpace : public StateSpace<kFreeFlyerStateDim> {
   std::array<int, StateDim> variable_upper_bound_;
 
   std::vector<MotionPrimitive> motion_primitives_;
+
+  std::vector<DiscrepancyNeighborhood> discrepancies_;
 };
 
 }  // namespace discrepancy_planner

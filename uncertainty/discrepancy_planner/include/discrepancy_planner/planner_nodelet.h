@@ -47,6 +47,8 @@ class PlannerNodelet : public planner::PlannerImplementation {
 
   void PublishPathMarker(const std::vector<FreeFlyerStateSpace::State*>& path);
 
+  void PublishDiscrepancyMarkers();
+
   ff_util::ConfigServer cfg_;
 
   tf2_ros::Buffer tf_buffer_;

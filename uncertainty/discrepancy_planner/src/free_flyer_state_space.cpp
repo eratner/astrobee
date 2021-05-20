@@ -71,6 +71,38 @@ std::string FreeFlyerStateSpace::VariableIndexToStr(VariableIndex index) {
   return "";
 }
 
+bool FreeFlyerStateSpace::DiscrepancyNeighborhood::Contains(
+  const Discretizer& discretizer, const State* state,
+  ActionIndex action) const {
+  if (action_ != action) return false;
+
+  double x = discretizer.Undiscretize(state->GetVariables()[X], X);
+  double y = discretizer.Undiscretize(state->GetVariables()[Y], Y);
+  double z = discretizer.Undiscretize(state->GetVariables()[Z], Z);
+  double dist =
+    std::sqrt(std::pow(x - state_.x_, 2) + std::pow(y - state_.y_, 2) +
+              std::pow(z - state_.z_, 2));
+  if (dist > radius_.pos_) return false;
+
+  double yaw = discretizer.Undiscretize(state->GetVariables()[YAW], YAW);
+
+  if (std::abs(angles::shortest_angular_distance(yaw, state_.yaw_)) >
+      radius_.orien_)
+    return false;
+
+  double prox_angle =
+    discretizer.Undiscretize(state->GetVariables()[PROX_ANGLE], PROX_ANGLE);
+  if (std::abs(prox_angle - state_.prox_angle_) > radius_.prox_angle_)
+    return false;
+
+  double dist_angle =
+    discretizer.Undiscretize(state->GetVariables()[DIST_ANGLE], DIST_ANGLE);
+  if (std::abs(dist_angle - state_.dist_angle_) > radius_.dist_angle_)
+    return false;
+
+  return true;
+}
+
 FreeFlyerStateSpace::FreeFlyerStateSpace(
   const Eigen::Matrix<double, 4, 4>& goal_in_world, double goal_dist_thresh,
   double goal_angle_thresh, const Discretizer& discretizer)
@@ -242,7 +274,7 @@ FreeFlyerStateSpace::GetSucc(const State* state, ActionIndex action) {
     // Collision check the transition.
     if (!InCollisionBetween(state->GetVariables(), succ_vars)) {
       succs = {StateSpace<StateDim>::GetState(succ_vars)};
-      double cost = primitive.cost_;  // + GetPenalty(state, action);
+      double cost = primitive.cost_ + GetPenalty(state, action);
       costs = {cost};
       probs = {1.0};
     }
@@ -466,5 +498,30 @@ bool FreeFlyerStateSpace::LoadMotionPrimitives(
                                          << " motion primitives");
   return true;
 }
+
+FreeFlyerStateSpace::CostType FreeFlyerStateSpace::GetPenalty(
+  const State* state, ActionIndex action) const {
+  auto it =
+    std::find_if(discrepancies_.begin(), discrepancies_.end(),
+                 [&](const DiscrepancyNeighborhood& discrepancy) {
+                   return discrepancy.Contains(discretizer_, state, action);
+                 });
+  if (it != discrepancies_.end()) return it->penalty_;
+
+  return 0;
+}
+
+void FreeFlyerStateSpace::AddDiscrepancy(
+  const DiscrepancyNeighborhood& discrepancy) {
+  // TODO Add high-D region around discrepancy.
+  discrepancies_.push_back(discrepancy);
+}
+
+const std::vector<FreeFlyerStateSpace::DiscrepancyNeighborhood>&
+FreeFlyerStateSpace::GetDiscrepancies() const {
+  return discrepancies_;
+}
+
+void FreeFlyerStateSpace::ClearDiscrepancies() { discrepancies_.clear(); }
 
 }  // namespace discrepancy_planner
