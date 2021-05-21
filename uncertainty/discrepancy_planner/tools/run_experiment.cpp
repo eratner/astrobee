@@ -128,6 +128,7 @@ class Experiment {
             state_ = DONE;
             break;
           }
+          case ff_msgs::MotionResult::TOLERANCE_VIOLATION_ATTITUDE:
           case ff_msgs::MotionResult::TOLERANCE_VIOLATION_POSITION: {
             // A discrepancy occurred!
             ROS_WARN("[Experiment] Discrepancy!");
