@@ -11,6 +11,8 @@ obstacle_manager:
   gazebo_ns: /gazebo
   topics:
     vis: /mob/planner_discrepancy/vis
+  # Experiment 1-- obstacle1
+  # Experiment 2-- obstacle1, obstacle2, obstacle3
   obstacles:
     - name: obstacle1
       size:
@@ -21,6 +23,34 @@ obstacle_manager:
         pos:
           x: 0.3
           y: 0
+          z: -0.6
+        orien:
+          roll: 0
+          pitch: 0
+          yaw: 0
+    - name: obstacle2
+      size:
+        x: 0.25
+        y: 0.05
+        z: 0.05
+      pose:
+        pos:
+          x: 0.125
+          y: 0.225
+          z: -0.6
+        orien:
+          roll: 0
+          pitch: 0
+          yaw: 0
+    - name: obstacle3
+      size:
+        x: 0.25
+        y: 0.05
+        z: 0.05
+      pose:
+        pos:
+          x: 0.125
+          y: -0.225
           z: -0.6
         orien:
           roll: 0

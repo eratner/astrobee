@@ -2,6 +2,7 @@
 #define DISCREPANCY_PLANNER_FREE_FLYER_STATE_SPACE_H
 
 #include <discrepancy_planner/box.h>
+#include <discrepancy_planner/normal_util.h>
 #include <ellis_util/search/state_space.h>
 using ellis_util::search::StateSpace;
 
@@ -167,6 +168,8 @@ class FreeFlyerStateSpace : public StateSpace<kFreeFlyerStateDim> {
 
   void ClearDiscrepancies();
 
+  void SetUseLikelihoodWeightedPenalty(bool use);
+
  protected:
   Discretizer discretizer_;
 
@@ -190,6 +193,7 @@ class FreeFlyerStateSpace : public StateSpace<kFreeFlyerStateDim> {
   std::vector<MotionPrimitive> motion_primitives_;
 
   std::vector<DiscrepancyNeighborhood> discrepancies_;
+  bool use_likelihood_weighted_penalty_;
 };
 
 }  // namespace discrepancy_planner

@@ -85,6 +85,9 @@ bool PlannerNodelet::InitializePlanner(ros::NodeHandle* nh) {
   nominal_ang_vel_ = cfg_.Get<double>("nominal_ang_vel");
   nominal_joint_vel_ = cfg_.Get<double>("nominal_joint_vel");
 
+  state_space_->SetUseLikelihoodWeightedPenalty(
+    cfg_.Get<bool>("use_likelihood_weighted_penalty"));
+
   return true;
 }
 
@@ -100,6 +103,52 @@ void PlannerNodelet::PlanCallback(ff_msgs::PlanGoal const& goal) {
   NODELET_DEBUG("Received new planning request!");
 
   ff_msgs::PlanResult result;
+
+  // Set the boundaries on the state space.
+  std::vector<ff_msgs::Zone> zones;
+  if (!GetZones(zones)) {
+    NODELET_ERROR("Could not get the zones!");
+    result.response = ff_msgs::PlanResult::BAD_ARGUMENTS;
+    return PlanResult(result);
+  }
+  const double boundary_margin = 0.15;  // TODO Read from config
+  // TODO For now, only support 1 KEEPIN zone
+  bool keepin_zone_found = false;
+  for (const auto& zone : zones) {
+    if (zone.type == ff_msgs::Zone::KEEPIN) {
+      if (!keepin_zone_found) {
+        keepin_zone_found = true;
+
+        // Set world lower bounds.
+        state_space_->SetVariableLowerBound(FreeFlyerStateSpace::X,
+                                            zone.min.x + 0.4);  // TODO HACK
+        // zone.min.x + boundary_margin);
+        state_space_->SetVariableLowerBound(FreeFlyerStateSpace::Y,
+                                            zone.min.y + boundary_margin);
+        state_space_->SetVariableLowerBound(FreeFlyerStateSpace::Z,
+                                            zone.min.z + boundary_margin);
+
+        // Set world upper bounds.
+        state_space_->SetVariableUpperBound(FreeFlyerStateSpace::X,
+                                            zone.max.x - boundary_margin);
+        state_space_->SetVariableUpperBound(FreeFlyerStateSpace::Y,
+                                            zone.max.y - boundary_margin);
+        state_space_->SetVariableUpperBound(FreeFlyerStateSpace::Z,
+                                            zone.max.z - boundary_margin);
+      } else {
+        NODELET_WARN_STREAM("Already found one KEEPIN zone, so skipping zone \""
+                            << zone.name << "\" with index " << zone.index);
+      }
+    } else {
+      NODELET_WARN_STREAM("Zone \"" << zone.name << "\" with index "
+                                    << zone.index
+                                    << " and has unsupported type " << zone.type
+                                    << ", so ignoring...");
+    }
+  }
+
+  if (!keepin_zone_found)
+    NODELET_WARN("No KEEPIN zone found, so no boundary on state space set");
 
   if (goal.states.empty()) {
     NODELET_WARN("No goal pose specified!");
@@ -199,7 +248,8 @@ void PlannerNodelet::PlanCallback(ff_msgs::PlanGoal const& goal) {
     start_pose.position.x, start_pose.position.y, start_pose.position.z,
     start_roll, start_pitch, start_yaw, 0, 0);
   // auto start_state =
-  //   state_space_->GetState(start_x_on_graph, start_y_on_graph, start_z_on_graph,
+  //   state_space_->GetState(start_x_on_graph, start_y_on_graph,
+  //   start_z_on_graph,
   //                          0, 0, start_yaw_on_graph, 0, 0);
   NODELET_WARN_STREAM("Planning from start state "
                       << *start_state << ", with heuristic cost-to-go "
@@ -486,6 +536,7 @@ bool PlannerNodelet::AddDiscrepancy(std_srvs::Trigger::Request& req,
 
   int best_segment_index = -1;
   double best_dist = 1e9;
+  auto best_waypoint = DefaultValueArray<double, kTrajectoryDim>(0);
 
   for (auto waypoint_time : waypoint_times) {
     std::array<double, kTrajectoryDim> pos;
@@ -511,6 +562,7 @@ bool PlannerNodelet::AddDiscrepancy(std_srvs::Trigger::Request& req,
       if (dist + ang_dist < best_dist) {
         best_dist = dist + ang_dist;
         best_segment_index = segment_index;
+        best_waypoint = pos;
       }
     } else
       NODELET_ERROR_STREAM("Could not get waypoint in trajectory at time "
@@ -544,12 +596,27 @@ bool PlannerNodelet::AddDiscrepancy(std_srvs::Trigger::Request& req,
     cfg_.Get<double>("discrepancy_radius_dist_angle");
 
   discrepancy.action_ = action;
-  discrepancy.state_.x_ = pose.position.x;
-  discrepancy.state_.y_ = pose.position.y;
-  discrepancy.state_.z_ = pose.position.z;
-  discrepancy.state_.yaw_ = tf::getYaw(pose.orientation);
-  discrepancy.state_.prox_angle_ = 0;  // TODO
-  discrepancy.state_.dist_angle_ = 0;  // TODO
+
+  // Version 1-- center the discrepancy neighborhood around the actual pose of
+  // the robot.
+  // discrepancy.state_.x_ = pose.position.x;
+  // discrepancy.state_.y_ = pose.position.y;
+  // discrepancy.state_.z_ = pose.position.z;
+  // discrepancy.state_.yaw_ = tf::getYaw(pose.orientation);
+  // discrepancy.state_.prox_angle_ = 0;  // TODO
+  // discrepancy.state_.dist_angle_ = 0;  // TODO
+
+  // Version 2-- center the discrepancy neighborhood around the desired
+  // (reference) pose of the robot, where the tracking controller failed.
+  discrepancy.state_.x_ = best_waypoint[FreeFlyerStateSpace::X];
+  discrepancy.state_.y_ = best_waypoint[FreeFlyerStateSpace::Y];
+  discrepancy.state_.z_ = best_waypoint[FreeFlyerStateSpace::Z];
+  discrepancy.state_.yaw_ = best_waypoint[FreeFlyerStateSpace::YAW];
+  discrepancy.state_.prox_angle_ =
+    best_waypoint[FreeFlyerStateSpace::PROX_ANGLE];
+  discrepancy.state_.dist_angle_ =
+    best_waypoint[FreeFlyerStateSpace::DIST_ANGLE];
+
   state_space_->AddDiscrepancy(discrepancy);
 
   res.success = true;

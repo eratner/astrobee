@@ -112,7 +112,8 @@ FreeFlyerStateSpace::FreeFlyerStateSpace(
       variable_lower_bound_(
         DefaultValueArray<int, StateDim>(std::numeric_limits<int>::min())),
       variable_upper_bound_(
-        DefaultValueArray<int, StateDim>(std::numeric_limits<int>::max())) {
+        DefaultValueArray<int, StateDim>(std::numeric_limits<int>::max())),
+      use_likelihood_weighted_penalty_(false) {
   // TODO All of the below should be loaded in via parameters.
   // NOTE Adding margin.
   const double robot_collision_margin = 0.1;
@@ -501,14 +502,47 @@ bool FreeFlyerStateSpace::LoadMotionPrimitives(
 
 FreeFlyerStateSpace::CostType FreeFlyerStateSpace::GetPenalty(
   const State* state, ActionIndex action) const {
-  auto it =
-    std::find_if(discrepancies_.begin(), discrepancies_.end(),
-                 [&](const DiscrepancyNeighborhood& discrepancy) {
-                   return discrepancy.Contains(discretizer_, state, action);
-                 });
-  if (it != discrepancies_.end()) return it->penalty_;
+  CostType penalty = 0.0;
+  if (use_likelihood_weighted_penalty_) {
+    int num_discrepancies = 0;
+    for (const auto& d : discrepancies_) {
+      if (d.action_ == action) num_discrepancies++;
+    }
 
-  return 0;
+    for (const auto& d : discrepancies_) {
+      if (d.action_ != action) continue;
+
+      MultivariateNormal<2>::Vec arg, mean;
+      mean = MultivariateNormal<2>::Vec::Zero();
+
+      double x = discretizer_.Undiscretize(state->GetVariables()[X], X);
+      double y = discretizer_.Undiscretize(state->GetVariables()[Y], Y);
+      double z = discretizer_.Undiscretize(state->GetVariables()[Z], Z);
+      arg(0) =
+        std::sqrt(std::pow(x - d.state_.x_, 2) + std::pow(y - d.state_.y_, 2) +
+                  std::pow(z - d.state_.z_, 2));
+
+      // NOTE Assuming roll == pitch == 0.
+      double yaw = discretizer_.Undiscretize(state->GetVariables()[YAW], YAW);
+      arg(1) = std::abs(angles::shortest_angular_distance(yaw, d.state_.yaw_));
+
+      MultivariateNormal<2>::Mat cov = MultivariateNormal<2>::Mat::Identity();
+      cov(0, 0) = std::pow(d.radius_.pos_, 2);
+      cov(1, 1) = std::pow(d.radius_.orien_, 2);
+
+      penalty += (d.penalty_ * MultivariateNormal<2>::PDF(arg, mean, cov) /
+                  static_cast<double>(num_discrepancies));
+    }
+  } else {
+    auto it =
+      std::find_if(discrepancies_.begin(), discrepancies_.end(),
+                   [&](const DiscrepancyNeighborhood& discrepancy) {
+                     return discrepancy.Contains(discretizer_, state, action);
+                   });
+    if (it != discrepancies_.end()) penalty = it->penalty_;
+  }
+
+  return penalty;
 }
 
 void FreeFlyerStateSpace::AddDiscrepancy(
@@ -523,5 +557,9 @@ FreeFlyerStateSpace::GetDiscrepancies() const {
 }
 
 void FreeFlyerStateSpace::ClearDiscrepancies() { discrepancies_.clear(); }
+
+void FreeFlyerStateSpace::SetUseLikelihoodWeightedPenalty(bool use) {
+  use_likelihood_weighted_penalty_ = use;
+}
 
 }  // namespace discrepancy_planner

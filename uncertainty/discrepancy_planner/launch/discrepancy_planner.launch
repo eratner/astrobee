@@ -1,0 +1,10 @@
+<launch>
+  <arg name="name" default="discrepancy_planner" />
+  <arg name="manager" default="" />
+  <include file="$(find ff_util)/launch/ff_nodelet.launch">
+    <arg name="name" value="$(arg name)" />
+    <arg name="manager" value="$(arg manager)" />
+    <arg name="class" value="discrepancy_planner/PlannerNodelet" />
+    <arg name="debug" value="false" />
+  </include>
+</launch>
