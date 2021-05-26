@@ -63,6 +63,34 @@ bool PlannerNodelet::InitializePlanner(ros::NodeHandle* nh) {
     return false;
   }
 
+  // Load the known obstacles from the parameter server.
+  XmlRpc::XmlRpcValue obstacles;
+  if (nh->getParam("discrepancy_planner/obstacles", obstacles)) {
+    NODELET_WARN("Loading obstacles from parameter server...");
+    for (int i = 0; i < obstacles.size(); ++i) {
+      double x, y, z;
+      if (!ParseDoubleParameter(obstacles[i]["pose"]["pos"]["x"], x) ||
+          !ParseDoubleParameter(obstacles[i]["pose"]["pos"]["y"], y) ||
+          !ParseDoubleParameter(obstacles[i]["pose"]["pos"]["z"], z)) {
+        NODELET_WARN_STREAM("Could not load position of obstacle " << i);
+        continue;
+      }
+
+      double size_x, size_y, size_z;
+      if (!ParseDoubleParameter(obstacles[i]["size"]["x"], size_x) ||
+          !ParseDoubleParameter(obstacles[i]["size"]["y"], size_y) ||
+          !ParseDoubleParameter(obstacles[i]["size"]["z"], size_z)) {
+        NODELET_WARN_STREAM("Could not load size of obstacle " << i);
+        continue;
+      }
+      Box b(Eigen::Vector3d(x, y, z), Eigen::Quaterniond::Identity(), size_x,
+            size_y, size_z);
+      // TODO Load rpy
+      state_space_->AddWorldCollisionBody(b);
+    }
+  } else
+    NODELET_WARN_STREAM("No obstacles found on parameter server");
+
   // Construct the heuristic.
   // TODO Read the heuristic type from config
   double cost_per_meter = 10;  // TODO Read from config
@@ -87,6 +115,18 @@ bool PlannerNodelet::InitializePlanner(ros::NodeHandle* nh) {
 
   state_space_->SetUseLikelihoodWeightedPenalty(
     cfg_.Get<bool>("use_likelihood_weighted_penalty"));
+
+  return true;
+}
+
+bool PlannerNodelet::ParseDoubleParameter(const XmlRpc::XmlRpcValue& value,
+                                          double& value_out) const {
+  if (value.getType() == XmlRpc::XmlRpcValue::TypeInt)
+    value_out = static_cast<int>(value);
+  else if (value.getType() == XmlRpc::XmlRpcValue::TypeDouble)
+    value_out = static_cast<double>(value);
+  else
+    return false;
 
   return true;
 }

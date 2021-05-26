@@ -28,31 +28,31 @@ obstacle_manager:
           roll: 0
           pitch: 0
           yaw: 0
-    - name: obstacle2
-      size:
-        x: 0.25
-        y: 0.05
-        z: 0.05
-      pose:
-        pos:
-          x: 0.125
-          y: 0.225
-          z: -0.6
-        orien:
-          roll: 0
-          pitch: 0
-          yaw: 0
-    - name: obstacle3
-      size:
-        x: 0.25
-        y: 0.05
-        z: 0.05
-      pose:
-        pos:
-          x: 0.125
-          y: -0.225
-          z: -0.6
-        orien:
-          roll: 0
-          pitch: 0
-          yaw: 0
+    # - name: obstacle2
+    #   size:
+    #     x: 0.25
+    #     y: 0.05
+    #     z: 0.05
+    #   pose:
+    #     pos:
+    #       x: 0.125
+    #       y: 0.225
+    #       z: -0.6
+    #     orien:
+    #       roll: 0
+    #       pitch: 0
+    #       yaw: 0
+    # - name: obstacle3
+    #   size:
+    #     x: 0.25
+    #     y: 0.05
+    #     z: 0.05
+    #   pose:
+    #     pos:
+    #       x: 0.125
+    #       y: -0.225
+    #       z: -0.6
+    #     orien:
+    #       roll: 0
+    #       pitch: 0
+    #       yaw: 0

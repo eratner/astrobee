@@ -27,6 +27,9 @@ class PlannerNodelet : public planner::PlannerImplementation {
  protected:
   bool InitializePlanner(ros::NodeHandle* nh);
 
+  bool ParseDoubleParameter(const XmlRpc::XmlRpcValue& value,
+                            double& value_out) const;
+
   bool ReconfigureCallback(dynamic_reconfigure::Config& config);
 
   void PlanCallback(ff_msgs::PlanGoal const& goal);
