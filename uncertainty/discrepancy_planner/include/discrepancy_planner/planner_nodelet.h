@@ -5,21 +5,38 @@
 #include <choreographer/planner.h>
 #include <tf2_ros/transform_listener.h>
 #include <ff_util/ff_names.h>
-#include <discrepancy_planner/util.h>
-#include <discrepancy_planner/free_flyer_state_space.h>
-#include <discrepancy_planner/euclidean_heuristic.h>
-#include <discrepancy_planner/rtaa.h>
-#include <discrepancy_planner/polynomial_trajectory.h>
+#include <astrobee_search_based_planning/euclidean_heuristic.h>
+#include <astrobee_search_based_planning/polynomial_trajectory.h>
+#include <astrobee_search_based_planning/rtaa.h>
+#include <astrobee_search_based_planning/state_space.h>
+#include <astrobee_search_based_planning/box.h>
 #include <visualization_msgs/Marker.h>
 #include <std_srvs/Trigger.h>
 #include <tf/transform_datatypes.h>
+using astrobee_search_based_planning::Box;
+using astrobee_search_based_planning::EuclideanHeuristic;
+using astrobee_search_based_planning::PolynomialTrajectory;
+using astrobee_search_based_planning::RTAA;
 
 namespace discrepancy_planner {
 
+// Trajectory waypoint: (x, y, z, yaw, prox. angle, dist. angle)
 constexpr unsigned int kTrajectoryDim = 6;
 
 class PlannerNodelet : public planner::PlannerImplementation {
  public:
+  typedef PolynomialTrajectory<kTrajectoryDim> Trajectory;
+  typedef astrobee_search_based_planning::StateSpace<0> StateSpace;
+
+  enum TrajectoryIndex {
+    TRAJECTORY_X = 0,
+    TRAJECTORY_Y,
+    TRAJECTORY_Z,
+    TRAJECTORY_YAW,
+    TRAJECTORY_PROX_ANGLE,
+    TRAJECTORY_DIST_ANGLE
+  };
+
   PlannerNodelet();
 
   ~PlannerNodelet();
@@ -38,14 +55,14 @@ class PlannerNodelet : public planner::PlannerImplementation {
                             double yaw_in, double& x_out, double& y_out,
                             double& z_out, double& yaw_out) const;
 
-  double MapToSearchGraph(double value,
-                          FreeFlyerStateSpace::VariableIndex variable,
+  double MapToSearchGraph(double value, StateSpace::VariableIndex variable,
                           int units_per_transition) const;
 
-  PolynomialTrajectory<kTrajectoryDim> PathToTrajectory(
-    const std::vector<FreeFlyerStateSpace::State*>& path, double start_x,
-    double start_y, double start_z, double start_yaw, double start_prox_angle,
-    double start_dist_angle, double start_time_sec = 0);
+  Trajectory PathToTrajectory(const std::vector<StateSpace::State*>& path,
+                              double start_x, double start_y, double start_z,
+                              double start_yaw, double start_prox_angle,
+                              double start_dist_angle,
+                              double start_time_sec = 0);
 
   double GetTimeBetweenWaypoints(
     const std::array<double, kTrajectoryDim>& first_waypoint,
@@ -56,7 +73,7 @@ class PlannerNodelet : public planner::PlannerImplementation {
 
   void PublishGoalMarker();
 
-  void PublishPathMarker(const std::vector<FreeFlyerStateSpace::State*>& path);
+  void PublishPathMarker(const std::vector<StateSpace::State*>& path);
 
   void PublishDiscrepancyMarkers();
 
@@ -73,11 +90,11 @@ class PlannerNodelet : public planner::PlannerImplementation {
   double nominal_ang_vel_;
   double nominal_joint_vel_;
 
-  FreeFlyerStateSpace* state_space_;
-  ellis_util::search::Heuristic<FreeFlyerStateSpace::StateDim>* heuristic_;
-  RTAA<FreeFlyerStateSpace::StateDim>* search_;
-  PolynomialTrajectory<kTrajectoryDim> last_trajectory_;
-  std::vector<FreeFlyerStateSpace::ActionIndex> last_actions_;
+  StateSpace* state_space_;
+  ellis_util::search::Heuristic<StateSpace::Dim>* heuristic_;
+  RTAA<StateSpace::Dim>* search_;
+  Trajectory last_trajectory_;
+  std::vector<StateSpace::ActionIndex> last_actions_;
 };
 
 }  // namespace discrepancy_planner

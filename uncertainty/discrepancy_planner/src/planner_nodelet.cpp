@@ -34,20 +34,37 @@ bool PlannerNodelet::InitializePlanner(ros::NodeHandle* nh) {
   cfg_.Initialize(GetPrivateHandle(), "mobility/planner_discrepancy.config");
   cfg_.Listen(boost::bind(&PlannerNodelet::ReconfigureCallback, this, _1));
 
+  double goal_pos_tol = cfg_.Get<double>("goal_pos_tol");
+  double goal_orien_tol = cfg_.Get<double>("goal_orien_tol");
+
+  // NOTE This should be set when the planner is invoked.
+  StateSpace::Goal goal;
+  goal.pos_.x_ = 0;
+  goal.pos_.y_ = 0;
+  goal.pos_.z_ = 0;
+  goal.yaw_ = 0;
+  goal.tolerance_.pos_ = goal_pos_tol;
+  goal.tolerance_.orien_ = goal_orien_tol;
+
+  StateSpace::Discretizer discretizer({
+    cfg_.Get<double>("x_disc"),    // x
+    cfg_.Get<double>("y_disc"),    // y
+    cfg_.Get<double>("z_disc"),    // z
+    1e-2,                          // vel_x (unused)
+    1e-2,                          // vel_y (unused)
+    1e-2,                          // vel_z (unused)
+    cfg_.Get<double>("yaw_disc"),  // yaw,
+    1e-2,                          // prox angle (unused)
+    1e-2,                          // dist angle (unused)
+    1                              // grasped object id (unused)
+  });
+
+  // TODO Read this
+  std::string robot_desc_str = "";
+
   // Construct the state space.
-  double goal_dist_thresh = cfg_.Get<double>("goal_dist_thresh");
-  double goal_angle_thresh = cfg_.Get<double>("goal_angle_thresh");
-  double x_disc = cfg_.Get<double>("x_disc");
-  double y_disc = cfg_.Get<double>("y_disc");
-  double z_disc = cfg_.Get<double>("z_disc");
-  double yaw_disc = cfg_.Get<double>("yaw_disc");
-  double prox_angle_disc = cfg_.Get<double>("prox_angle_disc");
-  double dist_angle_disc = cfg_.Get<double>("dist_angle_disc");
-  state_space_ = new FreeFlyerStateSpace(
-    Eigen::Matrix<double, 4, 4>::Identity(), goal_dist_thresh,
-    goal_angle_thresh,
-    FreeFlyerStateSpace::Discretizer(
-      {x_disc, y_disc, z_disc, yaw_disc, prox_angle_disc, dist_angle_disc}));
+  state_space_ = new astrobee_search_based_planning::StateSpace<>(
+    robot_desc_str, goal, discretizer);
 
   // Load the motion primitives from the parameter server.
   XmlRpc::XmlRpcValue motion_primitives;
@@ -94,10 +111,11 @@ bool PlannerNodelet::InitializePlanner(ros::NodeHandle* nh) {
   // Construct the heuristic.
   // TODO Read the heuristic type from config
   double cost_per_meter = 10;  // TODO Read from config
-  heuristic_ = new EuclideanHeuristic(state_space_, cost_per_meter);
+  heuristic_ = new EuclideanHeuristic<>(state_space_, cost_per_meter);
 
   // Construct the search.
-  search_ = new RTAA<FreeFlyerStateSpace::StateDim>(state_space_, heuristic_);
+  search_ = new RTAA<astrobee_search_based_planning::StateSpace<>::Dim>(
+    state_space_, heuristic_);
   double max_expansions = 75000;  // TODO Read from config
   search_->SetMaxExpansions(max_expansions);
 
@@ -160,21 +178,27 @@ void PlannerNodelet::PlanCallback(ff_msgs::PlanGoal const& goal) {
         keepin_zone_found = true;
 
         // Set world lower bounds.
-        state_space_->SetVariableLowerBound(FreeFlyerStateSpace::X,
-                                            zone.min.x + 0.4);  // TODO HACK
+        state_space_->SetVariableLowerBound(
+          astrobee_search_based_planning::StateSpace<>::X,
+          zone.min.x + 0.4);  // TODO HACK
         // zone.min.x + boundary_margin);
-        state_space_->SetVariableLowerBound(FreeFlyerStateSpace::Y,
-                                            zone.min.y + boundary_margin);
-        state_space_->SetVariableLowerBound(FreeFlyerStateSpace::Z,
-                                            zone.min.z + boundary_margin);
+        state_space_->SetVariableLowerBound(
+          astrobee_search_based_planning::StateSpace<>::Y,
+          zone.min.y + boundary_margin);
+        state_space_->SetVariableLowerBound(
+          astrobee_search_based_planning::StateSpace<>::Z,
+          zone.min.z + boundary_margin);
 
         // Set world upper bounds.
-        state_space_->SetVariableUpperBound(FreeFlyerStateSpace::X,
-                                            zone.max.x - boundary_margin);
-        state_space_->SetVariableUpperBound(FreeFlyerStateSpace::Y,
-                                            zone.max.y - boundary_margin);
-        state_space_->SetVariableUpperBound(FreeFlyerStateSpace::Z,
-                                            zone.max.z - boundary_margin);
+        state_space_->SetVariableUpperBound(
+          astrobee_search_based_planning::StateSpace<>::X,
+          zone.max.x - boundary_margin);
+        state_space_->SetVariableUpperBound(
+          astrobee_search_based_planning::StateSpace<>::Y,
+          zone.max.y - boundary_margin);
+        state_space_->SetVariableUpperBound(
+          astrobee_search_based_planning::StateSpace<>::Z,
+          zone.max.z - boundary_margin);
       } else {
         NODELET_WARN_STREAM("Already found one KEEPIN zone, so skipping zone \""
                             << zone.name << "\" with index " << zone.index);
@@ -227,26 +251,20 @@ void PlannerNodelet::PlanCallback(ff_msgs::PlanGoal const& goal) {
   // Set the goal state.
   // TODO Check if the goal state has changed-- if it has, need to clear the
   // state space
-  Eigen::Matrix<double, 4, 4> goal_in_world =
-    Eigen::Matrix<double, 4, 4>::Identity();
-  Eigen::Quaterniond goal_in_world_rot(
-    goal_pose.orientation.w, goal_pose.orientation.x, goal_pose.orientation.y,
-    goal_pose.orientation.z);
-  goal_in_world.block<3, 3>(0, 0) =
-    goal_in_world_rot.normalized().toRotationMatrix();
-  goal_in_world(0, 3) = goal_pose.position.x;
-  goal_in_world(1, 3) = goal_pose.position.y;
-  goal_in_world(2, 3) = goal_pose.position.z;
-  state_space_->SetGoalPose(goal_in_world);
+  state_space_->GetGoal().pos_.x_ = goal_pose.position.x;
+  state_space_->GetGoal().pos_.y_ = goal_pose.position.y;
+  state_space_->GetGoal().pos_.z_ = goal_pose.position.z;
+  state_space_->GetGoal().yaw_ = tf::getYaw(goal_pose.orientation);
   PublishGoalMarker();
 
   double start_roll, start_pitch, start_yaw;
-  QuaternionToRPY(start_pose.orientation.x, start_pose.orientation.y,
-                  start_pose.orientation.z, start_pose.orientation.w,
-                  start_roll, start_pitch, start_yaw);
+  astrobee_search_based_planning::QuaternionToRPY(
+    start_pose.orientation.x, start_pose.orientation.y,
+    start_pose.orientation.z, start_pose.orientation.w, start_roll, start_pitch,
+    start_yaw);
   double start_yaw_fixed;
-  if (!YawForZeroRollAndPitch(start_roll, start_pitch, start_yaw,
-                              start_yaw_fixed)) {
+  if (!astrobee_search_based_planning::YawForZeroRollAndPitch(
+        start_roll, start_pitch, start_yaw, start_yaw_fixed)) {
     NODELET_ERROR_STREAM("Could not get the correct yaw of the robot");
     result.response = ff_msgs::PlanResult::BAD_ARGUMENTS;
     return PlanResult(result);
@@ -257,9 +275,9 @@ void PlannerNodelet::PlanCallback(ff_msgs::PlanGoal const& goal) {
   }
 
   double goal_roll, goal_pitch, goal_yaw;
-  QuaternionToRPY(goal_pose.orientation.x, goal_pose.orientation.y,
-                  goal_pose.orientation.z, goal_pose.orientation.w, goal_roll,
-                  goal_pitch, goal_yaw);
+  astrobee_search_based_planning::QuaternionToRPY(
+    goal_pose.orientation.x, goal_pose.orientation.y, goal_pose.orientation.z,
+    goal_pose.orientation.w, goal_roll, goal_pitch, goal_yaw);
   NODELET_WARN_STREAM(
     "Planning from start (x, y, z) = ("
     << start_pose.position.x << ", " << start_pose.position.y << ", "
@@ -269,28 +287,24 @@ void PlannerNodelet::PlanCallback(ff_msgs::PlanGoal const& goal) {
     << goal_pose.position.z << "), (roll, pitch, yaw) = (" << goal_roll << ", "
     << goal_pitch << ", " << goal_yaw << ")...");
 
-  // Check if the robot is already at the goal state.
-  if (state_space_->IsGoalPose(start_pose.position.x, start_pose.position.y,
-                               start_pose.position.z, start_roll, start_pitch,
-                               start_yaw, 0, 0)) {
-    NODELET_WARN_STREAM("Robot already at the goal");
-    result.response = ff_msgs::PlanResult::ALREADY_THERE;
-    return PlanResult(result);
-  }
-
   double start_x_on_graph, start_y_on_graph, start_z_on_graph,
     start_yaw_on_graph;
   MapPoseToSearchGraph(start_pose.position.x, start_pose.position.y,
                        start_pose.position.z, start_yaw, start_x_on_graph,
                        start_y_on_graph, start_z_on_graph, start_yaw_on_graph);
 
-  auto start_state = state_space_->GetState(
-    start_pose.position.x, start_pose.position.y, start_pose.position.z,
-    start_roll, start_pitch, start_yaw, 0, 0);
-  // auto start_state =
-  //   state_space_->GetState(start_x_on_graph, start_y_on_graph,
-  //   start_z_on_graph,
-  //                          0, 0, start_yaw_on_graph, 0, 0);
+  auto start_state_variables = state_space_->StateContToDisc(
+    start_pose.position.x, start_pose.position.y, start_pose.position.z, 0, 0,
+    0, start_yaw, 0, 0);
+
+  // Check if the robot is already at the goal state.
+  if (state_space_->IsGoal(start_state_variables)) {
+    NODELET_WARN_STREAM("Robot already at the goal");
+    result.response = ff_msgs::PlanResult::ALREADY_THERE;
+    return PlanResult(result);
+  }
+
+  auto start_state = state_space_->GetState(start_state_variables);
   NODELET_WARN_STREAM("Planning from start state "
                       << *start_state << ", with heuristic cost-to-go "
                       << heuristic_->Value(start_state));
@@ -305,7 +319,8 @@ void PlannerNodelet::PlanCallback(ff_msgs::PlanGoal const& goal) {
 
   auto path_cost = search_->GetLastPathCost();
   auto path_and_actions = ellis_util::search::HeuristicSearch<
-    FreeFlyerStateSpace::StateDim>::ReconstructPathWithActions(goal_state);
+    astrobee_search_based_planning::StateSpace<>::Dim>::
+    ReconstructPathWithActions(goal_state);
   auto path = std::get<0>(path_and_actions);
   auto actions = std::get<1>(path_and_actions);
   NODELET_WARN_STREAM("Found path to goal with cost " << path_cost << ":");
@@ -352,30 +367,31 @@ void PlannerNodelet::PlanCallback(ff_msgs::PlanGoal const& goal) {
       waypoint.when = offset + ros::Duration(time);
 
       // Waypoint position.
-      waypoint.pose.position.x = pos[FreeFlyerStateSpace::X];
-      waypoint.pose.position.y = pos[FreeFlyerStateSpace::Y];
-      waypoint.pose.position.z = pos[FreeFlyerStateSpace::Z];
-      auto orien = RPYToQuaternion(0, 0, pos[FreeFlyerStateSpace::YAW]);
+      waypoint.pose.position.x = pos[TRAJECTORY_X];
+      waypoint.pose.position.y = pos[TRAJECTORY_Y];
+      waypoint.pose.position.z = pos[TRAJECTORY_Z];
+      auto orien = astrobee_search_based_planning::RPYToQuaternion(
+        0, 0, pos[TRAJECTORY_YAW]);
       waypoint.pose.orientation.x = orien.x();
       waypoint.pose.orientation.y = orien.y();
       waypoint.pose.orientation.z = orien.z();
       waypoint.pose.orientation.w = orien.w();
 
       // Waypoint velocity.
-      waypoint.twist.linear.x = vel[FreeFlyerStateSpace::X];
-      waypoint.twist.linear.y = vel[FreeFlyerStateSpace::Y];
-      waypoint.twist.linear.z = vel[FreeFlyerStateSpace::Z];
+      waypoint.twist.linear.x = vel[TRAJECTORY_X];
+      waypoint.twist.linear.y = vel[TRAJECTORY_Y];
+      waypoint.twist.linear.z = vel[TRAJECTORY_Z];
       waypoint.twist.angular.x = 0;
       waypoint.twist.angular.y = 0;
-      waypoint.twist.angular.z = vel[FreeFlyerStateSpace::YAW];
+      waypoint.twist.angular.z = vel[TRAJECTORY_YAW];
 
       // Waypoint acceleration.
-      waypoint.accel.linear.x = acc[FreeFlyerStateSpace::X];
-      waypoint.accel.linear.y = acc[FreeFlyerStateSpace::Y];
-      waypoint.accel.linear.z = acc[FreeFlyerStateSpace::Z];
+      waypoint.accel.linear.x = acc[TRAJECTORY_X];
+      waypoint.accel.linear.y = acc[TRAJECTORY_Y];
+      waypoint.accel.linear.z = acc[TRAJECTORY_Z];
       waypoint.accel.angular.x = 0;
       waypoint.accel.angular.y = 0;
-      waypoint.accel.angular.z = acc[FreeFlyerStateSpace::YAW];
+      waypoint.accel.angular.z = acc[TRAJECTORY_YAW];
 
       result.segment.push_back(waypoint);
     } else
@@ -400,37 +416,38 @@ void PlannerNodelet::MapPoseToSearchGraph(double x_in, double y_in, double z_in,
 
   // Map x onto the search graph.
   x_out =
-    MapToSearchGraph(x_in, FreeFlyerStateSpace::X, units_per_transition_x);
+    MapToSearchGraph(x_in, astrobee_search_based_planning::StateSpace<>::X,
+                     units_per_transition_x);
 
   // Map y onto the search graph.
   y_out =
-    MapToSearchGraph(y_in, FreeFlyerStateSpace::Y, units_per_transition_y);
+    MapToSearchGraph(y_in, astrobee_search_based_planning::StateSpace<>::Y,
+                     units_per_transition_y);
 
   // Map z onto the search graph.
   z_out =
-    MapToSearchGraph(z_in, FreeFlyerStateSpace::Z, units_per_transition_z);
+    MapToSearchGraph(z_in, astrobee_search_based_planning::StateSpace<>::Z,
+                     units_per_transition_z);
 
   // Map yaw onto the search graph.
-  yaw_out = MapToSearchGraph(yaw_in, FreeFlyerStateSpace::YAW,
-                             units_per_transition_yaw);
+  yaw_out =
+    MapToSearchGraph(yaw_in, astrobee_search_based_planning::StateSpace<>::YAW,
+                     units_per_transition_yaw);
 }
 
 double PlannerNodelet::MapToSearchGraph(
-  double value, FreeFlyerStateSpace::VariableIndex variable,
+  double value,
+  astrobee_search_based_planning::StateSpace<>::VariableIndex variable,
   int units_per_transition) const {
   int value_disc = state_space_->GetDiscretizer().Discretize(value, variable);
   value_disc = (value_disc / units_per_transition) * units_per_transition;
-  // value_disc =
-  //   static_cast<int>(std::round(1.0 * value_disc /
-  //                               static_cast<double>(units_per_transition))) *
-  //   units_per_transition;
   return state_space_->GetDiscretizer().Undiscretize(value_disc, variable);
 }
 
 PolynomialTrajectory<kTrajectoryDim> PlannerNodelet::PathToTrajectory(
-  const std::vector<FreeFlyerStateSpace::State*>& path, double start_x,
-  double start_y, double start_z, double start_yaw, double start_prox_angle,
-  double start_dist_angle, double start_time_sec) {
+  const std::vector<astrobee_search_based_planning::StateSpace<>::State*>& path,
+  double start_x, double start_y, double start_z, double start_yaw,
+  double start_prox_angle, double start_dist_angle, double start_time_sec) {
   std::vector<std::array<double, kTrajectoryDim>> waypoints;
   std::vector<double> waypoint_times;
 
@@ -448,9 +465,11 @@ PolynomialTrajectory<kTrajectoryDim> PlannerNodelet::PathToTrajectory(
       waypoint_prox_angle = start_prox_angle;
       waypoint_dist_angle = start_dist_angle;
     } else {
-      state_space_->GetPose(path[i - 1]->GetVariables(), waypoint_x, waypoint_y,
-                            waypoint_z, unused, unused, waypoint_yaw,
-                            waypoint_prox_angle, waypoint_dist_angle);
+      astrobee_search_based_planning::StateSpace<>::ObjectPoses object_poses;
+      state_space_->StateDiscToCont(path[i - 1]->GetVariables(), waypoint_x,
+                                    waypoint_y, waypoint_z, unused, unused,
+                                    unused, waypoint_yaw, waypoint_prox_angle,
+                                    waypoint_dist_angle, object_poses);
     }
     waypoints.push_back({waypoint_x, waypoint_y, waypoint_z, waypoint_yaw,
                          waypoint_prox_angle, waypoint_dist_angle});
@@ -476,16 +495,13 @@ PolynomialTrajectory<kTrajectoryDim> PlannerNodelet::PathToTrajectory(
   NODELET_INFO("Trajectory waypoints: ");
   for (int i = 0; i < waypoints.size(); ++i) {
     const auto& waypoint = waypoints[i];
-    NODELET_INFO_STREAM("  pos: ("
-                        << waypoint[FreeFlyerStateSpace::X] << ", "
-                        << waypoint[FreeFlyerStateSpace::Y] << ", "
-                        << waypoint[FreeFlyerStateSpace::Z]
-                        << "), yaw: " << waypoint[FreeFlyerStateSpace::YAW]
-                        << ", prox angle: "
-                        << waypoint[FreeFlyerStateSpace::PROX_ANGLE]
-                        << ", dist angle: "
-                        << waypoint[FreeFlyerStateSpace::DIST_ANGLE]
-                        << ", time: " << waypoint_times[i]);
+    NODELET_INFO_STREAM(
+      "  pos: (" << waypoint[TRAJECTORY_X] << ", " << waypoint[TRAJECTORY_Y]
+                 << ", " << waypoint[TRAJECTORY_Z]
+                 << "), yaw: " << waypoint[TRAJECTORY_YAW]
+                 << ", prox angle: " << waypoint[TRAJECTORY_PROX_ANGLE]
+                 << ", dist angle: " << waypoint[TRAJECTORY_DIST_ANGLE]
+                 << ", time: " << waypoint_times[i]);
   }
 
   return PolynomialTrajectory<kTrajectoryDim>(waypoints, waypoint_times, vels);
@@ -494,27 +510,20 @@ PolynomialTrajectory<kTrajectoryDim> PlannerNodelet::PathToTrajectory(
 double PlannerNodelet::GetTimeBetweenWaypoints(
   const std::array<double, kTrajectoryDim>& first_waypoint,
   const std::array<double, kTrajectoryDim>& second_waypoint) const {
-  double lin_dist_between_waypoints =
-    std::sqrt(std::pow(second_waypoint[FreeFlyerStateSpace::X] -
-                         first_waypoint[FreeFlyerStateSpace::X],
-                       2) +
-              std::pow(second_waypoint[FreeFlyerStateSpace::Y] -
-                         first_waypoint[FreeFlyerStateSpace::Y],
-                       2) +
-              std::pow(second_waypoint[FreeFlyerStateSpace::Z] -
-                         first_waypoint[FreeFlyerStateSpace::Z],
-                       2));
+  double lin_dist_between_waypoints = std::sqrt(
+    std::pow(second_waypoint[TRAJECTORY_X] - first_waypoint[TRAJECTORY_X], 2) +
+    std::pow(second_waypoint[TRAJECTORY_Y] - first_waypoint[TRAJECTORY_Y], 2) +
+    std::pow(second_waypoint[TRAJECTORY_Z] - first_waypoint[TRAJECTORY_Z], 2));
   double ang_dist_between_waypoints =
     std::abs(angles::shortest_angular_distance(
-      first_waypoint[FreeFlyerStateSpace::YAW],
-      second_waypoint[FreeFlyerStateSpace::YAW]));
+      first_waypoint[TRAJECTORY_YAW], second_waypoint[TRAJECTORY_YAW]));
   double joint_dist_between_waypoints =
     std::max(std::abs(angles::shortest_angular_distance(
-               first_waypoint[FreeFlyerStateSpace::PROX_ANGLE],
-               second_waypoint[FreeFlyerStateSpace::PROX_ANGLE])),
+               first_waypoint[TRAJECTORY_PROX_ANGLE],
+               second_waypoint[TRAJECTORY_PROX_ANGLE])),
              std::abs(angles::shortest_angular_distance(
-               first_waypoint[FreeFlyerStateSpace::DIST_ANGLE],
-               second_waypoint[FreeFlyerStateSpace::DIST_ANGLE])));
+               first_waypoint[TRAJECTORY_DIST_ANGLE],
+               second_waypoint[TRAJECTORY_DIST_ANGLE])));
   double time =
     std::max(std::max(lin_dist_between_waypoints / nominal_lin_vel_,
                       ang_dist_between_waypoints / nominal_ang_vel_),
@@ -576,28 +585,26 @@ bool PlannerNodelet::AddDiscrepancy(std_srvs::Trigger::Request& req,
 
   int best_segment_index = -1;
   double best_dist = 1e9;
-  auto best_waypoint = DefaultValueArray<double, kTrajectoryDim>(0);
+  auto best_waypoint =
+    astrobee_search_based_planning::DefaultValueArray<double, kTrajectoryDim>(
+      0);
 
   for (auto waypoint_time : waypoint_times) {
     std::array<double, kTrajectoryDim> pos;
     int segment_index = -1;
     if (last_trajectory_.Get(waypoint_time, pos, 0, &segment_index)) {
-      double dist =
-        std::sqrt(std::pow(pos[FreeFlyerStateSpace::X] - pose.position.x, 2) +
-                  std::pow(pos[FreeFlyerStateSpace::Y] - pose.position.y, 2) +
-                  std::pow(pos[FreeFlyerStateSpace::Z] - pose.position.z, 2));
+      double dist = std::sqrt(std::pow(pos[TRAJECTORY_X] - pose.position.x, 2) +
+                              std::pow(pos[TRAJECTORY_Y] - pose.position.y, 2) +
+                              std::pow(pos[TRAJECTORY_Z] - pose.position.z, 2));
       double ang_dist = std::abs(angles::shortest_angular_distance(
-        tf::getYaw(pose.orientation), pos[FreeFlyerStateSpace::YAW]));
-      NODELET_DEBUG_STREAM("  pos: ("
-                           << pos[FreeFlyerStateSpace::X] << ", "
-                           << pos[FreeFlyerStateSpace::Y] << ", "
-                           << pos[FreeFlyerStateSpace::Z]
-                           << "), yaw: " << pos[FreeFlyerStateSpace::YAW]
-                           << ", dist: " << dist << ", ang dist: " << ang_dist
-                           << ", segment: " << segment_index
-                           << ", best dist: " << best_dist
-                           << ", best segment: " << best_segment_index
-                           << ", time: " << waypoint_time);
+        tf::getYaw(pose.orientation), pos[TRAJECTORY_YAW]));
+      NODELET_DEBUG_STREAM(
+        "  pos: (" << pos[TRAJECTORY_X] << ", " << pos[TRAJECTORY_Y] << ", "
+                   << pos[TRAJECTORY_Z] << "), yaw: " << pos[TRAJECTORY_YAW]
+                   << ", dist: " << dist << ", ang dist: " << ang_dist
+                   << ", segment: " << segment_index << ", best dist: "
+                   << best_dist << ", best segment: " << best_segment_index
+                   << ", time: " << waypoint_time);
       // TODO Also check arm joint angles
       if (dist + ang_dist < best_dist) {
         best_dist = dist + ang_dist;
@@ -626,38 +633,32 @@ bool PlannerNodelet::AddDiscrepancy(std_srvs::Trigger::Request& req,
 
   // Add a discrepancy neighborhood around the current state and action to the
   // planner's state space.
-  FreeFlyerStateSpace::DiscrepancyNeighborhood discrepancy;
-  discrepancy.penalty_ = cfg_.Get<double>("discrepancy_penalty");
-  discrepancy.radius_.pos_ = cfg_.Get<double>("discrepancy_radius_pos");
-  discrepancy.radius_.orien_ = cfg_.Get<double>("discrepancy_radius_orien");
-  discrepancy.radius_.prox_angle_ =
-    cfg_.Get<double>("discrepancy_radius_prox_angle");
-  discrepancy.radius_.dist_angle_ =
-    cfg_.Get<double>("discrepancy_radius_dist_angle");
+  astrobee_search_based_planning::StateSpace<>::DiscrepancyNeighborhood nbhd;
+  nbhd.penalty_ = cfg_.Get<double>("discrepancy_penalty");
+  nbhd.radius_.pos_ = cfg_.Get<double>("discrepancy_radius_pos");
+  nbhd.radius_.vel_ = 1.0;  // NOTE Unused.
+  nbhd.radius_.orien_ = cfg_.Get<double>("discrepancy_radius_orien");
+  nbhd.radius_.prox_angle_ = cfg_.Get<double>("discrepancy_radius_prox_angle");
+  nbhd.radius_.dist_angle_ = cfg_.Get<double>("discrepancy_radius_dist_angle");
+  nbhd.radius_.object_pos_ = 1.0;    // NOTE Unused.
+  nbhd.radius_.object_orien_ = 1.0;  // NOTE Unused.
 
-  discrepancy.action_ = action;
+  nbhd.action_ = action;
 
-  // Version 1-- center the discrepancy neighborhood around the actual pose of
-  // the robot.
-  // discrepancy.state_.x_ = pose.position.x;
-  // discrepancy.state_.y_ = pose.position.y;
-  // discrepancy.state_.z_ = pose.position.z;
-  // discrepancy.state_.yaw_ = tf::getYaw(pose.orientation);
-  // discrepancy.state_.prox_angle_ = 0;  // TODO
-  // discrepancy.state_.dist_angle_ = 0;  // TODO
+  // Center the discrepancy neighborhood around the desired (reference) pose of
+  // the robot, where the tracking controller failed.
+  nbhd.state_.x_ = best_waypoint[TRAJECTORY_X];
+  nbhd.state_.y_ = best_waypoint[TRAJECTORY_Y];
+  nbhd.state_.z_ = best_waypoint[TRAJECTORY_Z];
+  nbhd.state_.vel_x_ = 0;
+  nbhd.state_.vel_y_ = 0;
+  nbhd.state_.vel_z_ = 0;
+  nbhd.state_.yaw_ = best_waypoint[TRAJECTORY_YAW];
+  nbhd.state_.prox_angle_ = best_waypoint[TRAJECTORY_PROX_ANGLE];
+  nbhd.state_.dist_angle_ = best_waypoint[TRAJECTORY_DIST_ANGLE];
+  nbhd.state_.grasped_object_id_ = -1;
 
-  // Version 2-- center the discrepancy neighborhood around the desired
-  // (reference) pose of the robot, where the tracking controller failed.
-  discrepancy.state_.x_ = best_waypoint[FreeFlyerStateSpace::X];
-  discrepancy.state_.y_ = best_waypoint[FreeFlyerStateSpace::Y];
-  discrepancy.state_.z_ = best_waypoint[FreeFlyerStateSpace::Z];
-  discrepancy.state_.yaw_ = best_waypoint[FreeFlyerStateSpace::YAW];
-  discrepancy.state_.prox_angle_ =
-    best_waypoint[FreeFlyerStateSpace::PROX_ANGLE];
-  discrepancy.state_.dist_angle_ =
-    best_waypoint[FreeFlyerStateSpace::DIST_ANGLE];
-
-  state_space_->AddDiscrepancy(discrepancy);
+  state_space_->AddDiscrepancy(nbhd);
 
   res.success = true;
   return true;
@@ -676,12 +677,9 @@ void PlannerNodelet::PublishGoalMarker() {
   goal_msg.id = 0;
   goal_msg.type = visualization_msgs::Marker::SPHERE;
 
-  double goal_x, goal_y, goal_z, unused;
-  state_space_->GetGoalPose(goal_x, goal_y, goal_z, unused, unused, unused);
-
-  goal_msg.pose.position.x = goal_x;
-  goal_msg.pose.position.y = goal_y;
-  goal_msg.pose.position.z = goal_z;
+  goal_msg.pose.position.x = state_space_->GetGoal().pos_.x_;
+  goal_msg.pose.position.y = state_space_->GetGoal().pos_.y_;
+  goal_msg.pose.position.z = state_space_->GetGoal().pos_.z_;
   goal_msg.pose.orientation.x = 0;
   goal_msg.pose.orientation.y = 0;
   goal_msg.pose.orientation.z = 0;
@@ -690,15 +688,16 @@ void PlannerNodelet::PublishGoalMarker() {
   goal_msg.color.g = 1;
   goal_msg.color.b = 0;
   goal_msg.color.a = 0.75;
-  auto goal_dist_thresh = state_space_->GetGoalDistThresh();
-  goal_msg.scale.x = goal_dist_thresh;
-  goal_msg.scale.y = goal_dist_thresh;
-  goal_msg.scale.z = goal_dist_thresh;
+  auto goal_pos_tol = state_space_->GetGoal().tolerance_.pos_;
+  goal_msg.scale.x = goal_pos_tol;
+  goal_msg.scale.y = goal_pos_tol;
+  goal_msg.scale.z = goal_pos_tol;
   vis_pub_.publish(goal_msg);
 }
 
 void PlannerNodelet::PublishPathMarker(
-  const std::vector<FreeFlyerStateSpace::State*>& path) {
+  const std::vector<astrobee_search_based_planning::StateSpace<>::State*>&
+    path) {
   visualization_msgs::Marker path_msg;
   path_msg.header.frame_id = std::string(FRAME_NAME_WORLD);
   path_msg.ns = "discrepancy_planner/path";
@@ -722,8 +721,10 @@ void PlannerNodelet::PublishPathMarker(
   for (auto state : path) {
     geometry_msgs::Point p;
     double unused;
-    state_space_->GetPose(state->GetVariables(), p.x, p.y, p.z, unused, unused,
-                          unused, unused, unused);
+    astrobee_search_based_planning::StateSpace<>::ObjectPoses unused_poses;
+    state_space_->StateDiscToCont(state->GetVariables(), p.x, p.y, p.z, unused,
+                                  unused, unused, unused, unused, unused,
+                                  unused_poses);
     path_msg.points.push_back(p);
   }
 
