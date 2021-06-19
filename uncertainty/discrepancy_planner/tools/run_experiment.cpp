@@ -3,7 +3,7 @@
 #include <ff_util/ff_action.h>
 #include <ff_util/ff_names.h>
 #include <ff_msgs/MotionAction.h>
-#include <discrepancy_planner/util.h>
+#include <astrobee_search_based_planning/util.h>
 #include <std_srvs/Trigger.h>
 
 class Experiment {
@@ -83,7 +83,8 @@ class Experiment {
     state.pose.position.z =
       nh_.param<double>("discrepancy_planner/goal/z", -0.675);
     double goal_yaw = nh_.param<double>("discrepancy_planner/goal/yaw", 0);
-    auto orien = discrepancy_planner::RPYToQuaternion(0, 0, goal_yaw);
+    auto orien =
+      astrobee_search_based_planning::RPYToQuaternion(0, 0, goal_yaw);
     state.pose.orientation.x = orien.x();
     state.pose.orientation.y = orien.y();
     state.pose.orientation.z = orien.z();
