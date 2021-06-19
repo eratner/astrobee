@@ -61,6 +61,11 @@ bool PlannerNodelet::InitializePlanner(ros::NodeHandle* nh) {
 
   // TODO Read this
   std::string robot_desc_str = "";
+  if (!nh->getParam("robot_description", robot_desc_str)) {
+    NODELET_ERROR(
+      "Could not retrieve robot description from parameter server!");
+    return false;
+  }
 
   // Construct the state space.
   state_space_ = new astrobee_search_based_planning::StateSpace<>(
