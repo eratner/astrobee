@@ -19,5 +19,6 @@
   <arg name="world"/>
   <node name="rviz_node" pkg="rviz" type="rviz" 
         respawn="true"  output="log"
-        args="-d $(find astrobee)/resources/rviz/$(arg world).rviz"/>
+        args="-d $(find discrepancy_planner)/config/granite_lab.rviz" />
+        <!-- args="-d $(find astrobee)/resources/rviz/$(arg world).rviz"/ -->
 </launch>
