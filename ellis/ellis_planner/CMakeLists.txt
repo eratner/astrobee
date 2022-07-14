@@ -5,7 +5,6 @@ add_compile_options(-std=c++14)
 
 find_package(catkin2 REQUIRED COMPONENTS
   roscpp
-  choreographer
   ff_util
   ff_msgs
   tf2_ros
@@ -19,7 +18,8 @@ catkin_package(
   roscpp
   ff_util
   ff_msgs
-  choreographer
+  tf2_ros
+  tf2
 )
 
 include_directories(
