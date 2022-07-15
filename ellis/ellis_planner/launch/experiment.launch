@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+<launch>
+  <!-- Load experiment parameters. -->
+  <rosparam command="load" file="$(find ellis_planner)/config/experiment.yaml" />
+
+  <!-- Robot doesn't need to face forward when moving. -->
+  <!-- <node name="teleop" type="teleop_tool" pkg="executive" output="screen" -->
+  <!--       args="-set_face_forward 'off'"/> -->
+
+  <!-- Run the experiment manager. -->
+  <node name="experiment_manager" type="exp" pkg="ellis_planner" output="screen" />
+</launch>
