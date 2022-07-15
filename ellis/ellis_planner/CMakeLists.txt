@@ -13,6 +13,7 @@ find_package(catkin2 REQUIRED COMPONENTS
   pluginlib
   choreographer
   visualization_msgs
+  angles
 )
 find_package(PCL REQUIRED COMPONENTS common)
 find_package(Eigen3 REQUIRED)
@@ -30,6 +31,7 @@ catkin_package(
     pluginlib
     choreographer
     visualization_msgs
+    angles
 )
 
 include_directories(
