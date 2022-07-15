@@ -11,9 +11,9 @@
 #include <ellis_planner/state.h>
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2/utils.h>
-#include <angles/angles.h>
 #include <string>
 #include <vector>
+#include <cmath>
 
 namespace ellis_planner {
 
@@ -40,6 +40,8 @@ class PlannerInterface : public planner::PlannerImplementation {
 
   void PublishPoseMarker(double x, double y, double z, double yaw, const std::string& name = "pose",
                          bool show_name = true, double r = 1.0, double g = 0.0, double b = 0.0, double a = 0.75);
+
+  double AngularDist(double from, double to) const;
 
   ff_util::ConfigServer cfg_;
 

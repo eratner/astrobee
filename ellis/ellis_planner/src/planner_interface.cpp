@@ -200,7 +200,7 @@ double PlannerInterface::GetTimeBetweenWaypoints(const Waypoint& first_waypoint,
                                                  const Waypoint& second_waypoint) const {
   double dist_between_waypoints = std::sqrt(std::pow(second_waypoint[0] - first_waypoint[0], 2) +
                                             std::pow(second_waypoint[1] - first_waypoint[1], 2));
-  double ang_between_waypoints = std::abs(angles::shortest_angular_distance(first_waypoint[2], second_waypoint[2]));
+  double ang_between_waypoints = std::abs(AngularDist(first_waypoint[2], second_waypoint[2]));
   double time = std::max(dist_between_waypoints / nominal_lin_vel_, ang_between_waypoints / nominal_ang_vel_);
   // TODO(eratner) Make this a parameter.
   if (time < 0.5) time = 0.5;
@@ -266,6 +266,13 @@ void PlannerInterface::PublishPoseMarker(double x, double y, double z, double ya
     name_msg.text = name;
     vis_pub_.publish(name_msg);
   }
+}
+
+double PlannerInterface::AngularDist(double from, double to) const {
+  double diff = to - from;
+  diff = fmod(fmod(diff, 2.0 * M_PI) + 2.0 * M_PI, 2.0 * M_PI);
+  if (diff > M_PI) diff -= 2.0 * M_PI;
+  return diff;
 }
 
 }  // namespace ellis_planner
