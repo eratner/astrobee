@@ -1,18 +1,20 @@
-// Copyright 2022 Ellis Ratner
+// Copyright 2022 Ellis Ratner (eratner@berkeley.edu)
 #include <ros/ros.h>
 #include <ff_util/ff_action.h>
 #include <ff_util/ff_names.h>
+#include <ff_util/config_client.h>
 #include <ff_msgs/MotionAction.h>
 #include <tf2_ros/transform_listener.h>
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2/utils.h>
+#include <ros/package.h>
 #include <array>
 #include <string>
 #include <vector>
 
 class ExperimentManager {
  public:
-  ExperimentManager() : tf_listener_(tf_buffer_), state_(READY) {}
+  ExperimentManager() : p_nh_("~"), tf_listener_(tf_buffer_), state_(READY), cfg_(&nh_, NODE_CHOREOGRAPHER) {}
 
   ~ExperimentManager() {}
 
@@ -39,22 +41,56 @@ class ExperimentManager {
       ros::Duration(0.25).sleep();
     }
 
+    XmlRpc::XmlRpcValue waypoints;
+    if (p_nh_.getParam("waypoints", waypoints)) {
+      for (int i = 0; i < waypoints.size(); ++i) {
+        XmlRpc::XmlRpcValue w = waypoints[i];
+        double x = 0.0, y = 0.0, yaw = 0.0;
+        std::string planner_type = "trapezoidal";
+        for (auto it = w.begin(); it != w.end(); ++it) {
+          if (it->first == "x")
+            x = static_cast<double>(it->second);
+          else if (it->first == "y")
+            y = static_cast<double>(it->second);
+          else if (it->first == "yaw")
+            yaw = static_cast<double>(it->second);
+          else if (it->first == "planner")
+            planner_type = static_cast<std::string>(it->second);
+        }
+        ROS_INFO_STREAM("  " << i << ": (" << x << ", " << y << ", " << yaw << "), planner: " << planner_type);
+        waypoint_.push_back({x, y, yaw});
+        planner_type_.push_back(planner_type);
+      }
+    } else {
+      ROS_WARN("[ExperimentManager] No waypoints specified");
+    }
+
     return true;
   }
 
   void Run() {
-    std::vector<std::array<double, 3>> waypoints;  // TODO(eratner) Read these from a config
-    waypoints = {{0, 0, 0}, {-0.45, 0.35, 0}, {0.7, 0.35, 0}};
     int waypoint_index = 0;
-
-    // TODO(eratner) set face forward off
 
     ros::Rate rate(5.0);
     while (ros::ok()) {
       switch (state_) {
         case READY:
-          if (waypoint_index < waypoints.size()) {
-            const auto& next_waypoint = waypoints[waypoint_index];
+          if (waypoint_index < waypoint_.size()) {
+            ROS_INFO_STREAM("Ready to execute waypoint " << waypoint_index + 1 << " of " << waypoint_.size()
+                                                         << ", press ENTER to continue...");
+            std::cin.get();
+
+            const auto& next_waypoint = waypoint_[waypoint_index];
+            const auto& next_planner_type = planner_type_[waypoint_index];
+
+            // Change to the specified planner.
+            cfg_.Set<std::string>("planner", next_planner_type);
+            if (!cfg_.Reconfigure()) {
+              ROS_ERROR_STREAM("[ExperimentManager] Could change planner type to \"" << next_planner_type << "\"!");
+              state_ = ERROR;
+              break;
+            }
+
             if (!MoveTo(next_waypoint[0], next_waypoint[1], next_waypoint[2])) {
               ROS_ERROR_STREAM("Move to (" << next_waypoint[0] << ", " << next_waypoint[1] << ", " << next_waypoint[2]
                                            << ") failed!");
@@ -119,7 +155,7 @@ class ExperimentManager {
     try {
       world_to_body =
         tf_buffer_.lookupTransform(std::string(FRAME_NAME_WORLD), std::string(FRAME_NAME_BODY), ros::Time(0));
-    } catch (tf2::TransformException& ex) {
+    } catch (const tf2::TransformException& ex) {
       ROS_ERROR_STREAM("[ExperimentManager] Error: " << ex.what());
       return false;
     }
@@ -186,10 +222,14 @@ class ExperimentManager {
   }
 
   ros::NodeHandle nh_;
+  ros::NodeHandle p_nh_;
   tf2_ros::Buffer tf_buffer_;
   tf2_ros::TransformListener tf_listener_;
   ff_util::FreeFlyerActionClient<ff_msgs::MotionAction> mobility_client_;
   State state_;
+  ff_util::ConfigClient cfg_;
+  std::vector<std::array<double, 3>> waypoint_;
+  std::vector<std::string> planner_type_;
 };
 
 int main(int argc, char* argv[]) {

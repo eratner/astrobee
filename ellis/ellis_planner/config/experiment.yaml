@@ -1,0 +1,12 @@
+experiment_manager:
+  waypoints:
+    - x: 0.0
+      y: 0.0
+      yaw: 0.0
+    - x: -0.45
+      y: 0.35
+      yaw: 0.0
+    - x: 0.7
+      y: 0.35
+      yaw: 0.0
+      planner: ellis

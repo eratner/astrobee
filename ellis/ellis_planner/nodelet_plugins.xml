@@ -1,0 +1,7 @@
+<library path="lib/libellis_planner">
+  <class name="ellis_planner/PlannerInterface"
+         type="ellis_planner::PlannerInterface"
+         base_class_type="nodelet::Nodelet">
+    <description>Nodelet for the ellis planner</description>
+  </class>
+</library>
