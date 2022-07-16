@@ -43,6 +43,8 @@ add_library(ellis_planner
   src/planner_interface.cpp
   src/polynomial.cpp
   src/state.cpp
+  src/environment.cpp
+  src/search.cpp
 )
 add_dependencies(ellis_planner ${catkin_EXPORTED_TARGETS})
 target_link_libraries(ellis_planner ${catkin_LIBRARIES} ${PCL_LIBRARIES})

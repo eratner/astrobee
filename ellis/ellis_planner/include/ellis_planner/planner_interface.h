@@ -8,7 +8,8 @@
 #include <ff_util/ff_names.h>
 #include <visualization_msgs/Marker.h>
 #include <ellis_planner/polynomial_trajectory.h>
-#include <ellis_planner/state.h>
+#include <ellis_planner/environment.h>
+#include <ellis_planner/search.h>
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2/utils.h>
 #include <string>
@@ -41,8 +42,6 @@ class PlannerInterface : public planner::PlannerImplementation {
   void PublishPoseMarker(double x, double y, double z, double yaw, const std::string& name = "pose",
                          bool show_name = true, double r = 1.0, double g = 0.0, double b = 0.0, double a = 0.75);
 
-  double AngularDist(double from, double to) const;
-
   ff_util::ConfigServer cfg_;
 
   tf2_ros::Buffer tf_buffer_;
@@ -52,6 +51,10 @@ class PlannerInterface : public planner::PlannerImplementation {
 
   double nominal_lin_vel_;
   double nominal_ang_vel_;
+
+  // Planning.
+  Environment env_;
+  Search search_;
 };
 
 }  // namespace ellis_planner

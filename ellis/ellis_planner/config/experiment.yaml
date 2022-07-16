@@ -6,6 +6,7 @@ experiment_manager:
     - x: -0.45
       y: 0.35
       yaw: 0.0
+      planner: ellis
     - x: 0.7
       y: 0.35
       yaw: 0.0

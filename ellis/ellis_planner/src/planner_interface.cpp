@@ -8,7 +8,9 @@
 namespace ellis_planner {
 
 PlannerInterface::PlannerInterface()
-    : planner::PlannerImplementation("ellis", "Ellis's experimental planner"), tf_listener_(tf_buffer_) {
+    : planner::PlannerImplementation("ellis", "Ellis's experimental planner"),
+      tf_listener_(tf_buffer_),
+      search_(&env_) {
   NODELET_DEBUG("Constructing ellis planner nodelet...");
 }
 
@@ -24,6 +26,16 @@ bool PlannerInterface::InitializePlanner(ros::NodeHandle* nh) {
 
   nominal_lin_vel_ = cfg_.Get<double>("nominal_lin_vel");
   nominal_ang_vel_ = cfg_.Get<double>("nominal_ang_vel");
+
+  // TODO(eratner) Read actions from config
+  std::vector<Environment::Action> actions = {
+    Environment::Action("move_pos_x", 0.05, 0.0, 0.0, 0.05),
+    Environment::Action("move_neg_x", -0.05, 0.0, 0.0, 0.05),
+    Environment::Action("move_pos_y", 0.0, 0.05, 0.0, 0.05),
+    Environment::Action("move_neg_y", 0.0, -0.05, 0.0, 0.05),
+  };
+  //  Environment::Action("rot_ccw", 0.0, 0.0, 0.2, 0.2),      Environment::Action("rot_cw", 0.0, 0.0, -0.2, 0.2)};
+  env_.SetActions(actions);
 
   return true;
 }
@@ -54,10 +66,8 @@ void PlannerInterface::PlanCallback(const ff_msgs::PlanGoal& goal) {
     if (zone.type == ff_msgs::Zone::KEEPIN) {
       if (!keepin_zone_found) {
         keepin_zone_found = true;
-
-        // [zone.min.x, zone.max.x]
-        // [zone.min.y, zone.max.y]
-        // [zone.min.z, zone.max.z]
+        // Set bounds on the environment used in planning.
+        env_.SetBounds(zone.min.x, zone.max.x, zone.min.y, zone.max.y);
       } else {
         NODELET_WARN_STREAM("Already found one KEEPIN zone, so skipping zone \"" << zone.name << "\" with index "
                                                                                  << zone.index);
@@ -94,10 +104,21 @@ void PlannerInterface::PlanCallback(const ff_msgs::PlanGoal& goal) {
   PublishPoseMarker(goal_pose.position.x, goal_pose.position.y, goal_pose.position.z, goal_yaw, "ellis/goal");
 
   // TODO(eratner) Implement planner here
+  env_.SetGoal(goal_pose.position.x, goal_pose.position.y, goal_yaw);
+  std::vector<ellis_planner::State::Ptr> path;
+  auto start_state = env_.GetState(start_x, start_y, start_yaw);
+  if (!search_.Run(start_state, path)) {
+    NODELET_ERROR_STREAM("Could not find a path to the goal");
+    result.response = ff_msgs::PlanResult::BAD_ARGUMENTS;
+    return PlanResult(result);
+  }
 
   std::vector<Waypoint> waypoints;
-  waypoints.push_back({start_x, start_y, start_yaw});
-  waypoints.push_back({goal_pose.position.x, goal_pose.position.y, goal_yaw});
+  // waypoints.push_back({start_x, start_y, start_yaw});
+  // waypoints.push_back({goal_pose.position.x, goal_pose.position.y, goal_yaw});
+  for (const auto state : path) {
+    waypoints.push_back({state->GetX(), state->GetY(), state->GetYaw()});
+  }
   auto traj = ToTrajectory(waypoints, 0);
 
   double traj_start_time;
@@ -178,9 +199,12 @@ PolynomialTrajectory<kStateDim> PlannerInterface::ToTrajectory(const std::vector
     times.push_back(time);
 
     if (i < waypoints.size() - 1) {
-      vels.push_back({nominal_lin_vel_,    // x
-                      nominal_lin_vel_,    // y
-                      nominal_ang_vel_});  // yaw
+      double vel_x = std::abs(waypoint[0] - last_waypoint[0]) > 1e-6 ? nominal_lin_vel_ : 0.0;
+      double vel_y = std::abs(waypoint[1] - last_waypoint[1]) > 1e-6 ? nominal_lin_vel_ : 0.0;
+      double vel_yaw = std::abs(waypoint[2] - last_waypoint[2]) > 1e-6 ? nominal_ang_vel_ : 0.0;
+      vels.push_back({vel_x,      // x
+                      vel_y,      // y
+                      vel_yaw});  // yaw
     } else {
       vels.push_back({0, 0, 0});
     }
@@ -266,13 +290,6 @@ void PlannerInterface::PublishPoseMarker(double x, double y, double z, double ya
     name_msg.text = name;
     vis_pub_.publish(name_msg);
   }
-}
-
-double PlannerInterface::AngularDist(double from, double to) const {
-  double diff = to - from;
-  diff = fmod(fmod(diff, 2.0 * M_PI) + 2.0 * M_PI, 2.0 * M_PI);
-  if (diff > M_PI) diff -= 2.0 * M_PI;
-  return diff;
 }
 
 }  // namespace ellis_planner
