@@ -8,6 +8,7 @@
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2/utils.h>
 #include <ros/package.h>
+#include <std_srvs/Trigger.h>
 #include <array>
 #include <string>
 #include <vector>
@@ -18,7 +19,7 @@ class ExperimentManager {
 
   ~ExperimentManager() {}
 
-  enum State { READY = 0, MOVING, ERROR };
+  enum State { READY = 0, MOVING, REPLAN_NEEDED, ERROR };
 
   bool Init() {
     // Connect to the mobility server.
@@ -65,6 +66,8 @@ class ExperimentManager {
       ROS_WARN("[ExperimentManager] No waypoints specified");
     }
 
+    report_execution_error_client_ = nh_.serviceClient<std_srvs::Trigger>("/mob/ellis_planner/report_execution_error");
+
     return true;
   }
 
@@ -74,7 +77,7 @@ class ExperimentManager {
     ros::Rate rate(5.0);
     while (ros::ok()) {
       switch (state_) {
-        case READY:
+        case READY: {
           if (waypoint_index < waypoint_.size()) {
             ROS_INFO_STREAM("Ready to execute waypoint " << waypoint_index + 1 << " of " << waypoint_.size()
                                                          << ", press ENTER to continue...");
@@ -100,8 +103,26 @@ class ExperimentManager {
             }
           }
           break;
-        case MOVING:
-        case ERROR:
+        }
+        case MOVING: {
+          ROS_DEBUG_STREAM("Moving...");
+          break;
+        }
+        case REPLAN_NEEDED: {
+          const auto& waypoint = waypoint_[waypoint_index];
+          ROS_INFO_STREAM("Replanning to waypoint " << waypoint_index - 1 << ": (" << waypoint[0] << ", " << waypoint[1]
+                                                    << ", " << waypoint[2] << ")");
+          if (!MoveTo(waypoint[0], waypoint[1], waypoint[2])) {
+            ROS_ERROR_STREAM("Move to (" << waypoint[0] << ", " << waypoint[1] << ", " << waypoint[2] << ") failed!");
+          } else {
+            state_ = MOVING;
+          }
+          break;
+        }
+        case ERROR: {
+          ROS_DEBUG_STREAM("[ExperimentManager] Error...");
+          break;
+        }
         default:
           break;
       }
@@ -197,7 +218,16 @@ class ExperimentManager {
           case ff_msgs::MotionResult::TOLERANCE_VIOLATION_POSITION: {
             // A discrepancy occurred!
             ROS_WARN("[ExperimentManager] Something unexpected occurred!");
-            state_ = ERROR;
+
+            // Report the execution failure.
+            std_srvs::Trigger srv;
+            if (report_execution_error_client_.call(srv)) {
+              ROS_INFO("[ExperimentManager] Reporting execution error...");
+              state_ = REPLAN_NEEDED;
+            } else {
+              ROS_ERROR("[Experiment] Failed to call service to add discrepancy");
+              state_ = ERROR;
+            }
 
             // TODO(eratner) Do something!
             break;
@@ -230,6 +260,7 @@ class ExperimentManager {
   ff_util::ConfigClient cfg_;
   std::vector<std::array<double, 3>> waypoint_;
   std::vector<std::string> planner_type_;
+  ros::ServiceClient report_execution_error_client_;
 };
 
 int main(int argc, char* argv[]) {

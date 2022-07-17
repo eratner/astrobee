@@ -108,7 +108,9 @@ void PlannerInterface::PlanCallback(const ff_msgs::PlanGoal& goal) {
   std::vector<ellis_planner::State::Ptr> path;
   auto start_state = env_.GetState(start_x, start_y, start_yaw);
   if (!search_.Run(start_state, path)) {
-    NODELET_ERROR_STREAM("Could not find a path to the goal");
+    NODELET_ERROR_STREAM("Could not find a path to the goal, with start ("
+                         << start_x << ", " << start_y << ", " << start_yaw << ") and goal (" << goal_pose.position.x
+                         << ", " << goal_pose.position.y << ", " << goal_yaw << ")");
     result.response = ff_msgs::PlanResult::BAD_ARGUMENTS;
     return PlanResult(result);
   }
@@ -199,9 +201,36 @@ PolynomialTrajectory<kStateDim> PlannerInterface::ToTrajectory(const std::vector
     times.push_back(time);
 
     if (i < waypoints.size() - 1) {
-      double vel_x = std::abs(waypoint[0] - last_waypoint[0]) > 1e-6 ? nominal_lin_vel_ : 0.0;
-      double vel_y = std::abs(waypoint[1] - last_waypoint[1]) > 1e-6 ? nominal_lin_vel_ : 0.0;
-      double vel_yaw = std::abs(waypoint[2] - last_waypoint[2]) > 1e-6 ? nominal_ang_vel_ : 0.0;
+      std::array<int, 3> vel_dir = {0, 0, 0};
+      for (int j = 0; j < 3; ++j) {
+        double diff = waypoint[j] - last_waypoint[j];
+        if (std::abs(diff) > 1e-6) {
+          if (diff > 0.0)
+            vel_dir[j] = 1;
+          else
+            vel_dir[j] = -1;
+        }
+      }
+
+      const auto& next_waypoint = waypoints[i + 1];
+      std::array<int, 3> next_vel_dir = {0, 0, 0};
+      for (int j = 0; j < 3; ++j) {
+        double diff = next_waypoint[j] - waypoint[j];
+        if (std::abs(diff) > 1e-6) {
+          if (diff > 0.0)
+            next_vel_dir[j] = 1;
+          else
+            next_vel_dir[j] = -1;
+        }
+      }
+
+      double vel_x = 0.0, vel_y = 0.0, vel_yaw = 0.0;
+      if (vel_dir[0] == next_vel_dir[0] && vel_dir[1] == next_vel_dir[1] && vel_dir[2] == next_vel_dir[2]) {
+        vel_x = static_cast<double>(vel_dir[0]) * nominal_lin_vel_;
+        vel_y = static_cast<double>(vel_dir[1]) * nominal_lin_vel_;
+        vel_yaw = static_cast<double>(vel_dir[2]) * nominal_ang_vel_;
+      }
+
       vels.push_back({vel_x,      // x
                       vel_y,      // y
                       vel_yaw});  // yaw
