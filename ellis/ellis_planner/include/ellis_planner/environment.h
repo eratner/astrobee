@@ -137,6 +137,10 @@ class Environment {
 
 std::ostream& operator<<(std::ostream& os, const Environment::Action& action);
 
+std::ostream& operator<<(std::ostream& os, const Environment::ExecutionErrorNeighborhoodParameters& params);
+
+std::ostream& operator<<(std::ostream& os, const Environment::ExecutionErrorNeighborhood& nbhd);
+
 }  // namespace ellis_planner
 
 #endif  // ELLIS_PLANNER_ENVIRONMENT_H_

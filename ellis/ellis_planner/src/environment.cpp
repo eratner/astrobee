@@ -167,7 +167,7 @@ std::tuple<State::Ptr, double> Environment::GetOutcome(const State::Ptr state, c
   }
 
   auto outcome = GetState(x, y, yaw);
-  return std::make_tuple(outcome, action.cost_);
+  return std::make_tuple(outcome, cost);
 }
 
 double Environment::GetHeuristicCostToGoal(const State::Ptr state) const {
@@ -215,6 +215,18 @@ std::ostream& operator<<(std::ostream& os, const Environment::Action& action) {
   os << "{name: " << action.name_ << ", change_in_x: " << action.change_in_x_
      << ", change_in_y: " << action.change_in_y_ << ", change_in_yaw: " << action.change_in_yaw_
      << ", cost: " << action.cost_ << "}";
+  return os;
+}
+
+std::ostream& operator<<(std::ostream& os, const Environment::ExecutionErrorNeighborhoodParameters& params) {
+  os << "{state_radius_pos: " << params.state_radius_pos_ << ", state_radius_yaw: " << params.state_radius_yaw_
+     << ", action_radius_pos: " << params.action_radius_pos_ << ", penalty: " << params.penalty_ << "}";
+  return os;
+}
+
+std::ostream& operator<<(std::ostream& os, const Environment::ExecutionErrorNeighborhood& nbhd) {
+  os << "{x: " << nbhd.x_ << ", y: " << nbhd.y_ << ", yaw: " << nbhd.yaw_ << ", action_dir_x: " << nbhd.action_dir_x_
+     << ", action_dir_y: " << nbhd.action_dir_y_ << ", action_dir_yaw: " << nbhd.action_dir_yaw_ << "}";
   return os;
 }
 

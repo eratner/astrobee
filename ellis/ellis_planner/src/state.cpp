@@ -14,4 +14,11 @@ double State::GetY() const { return y_; }
 
 double State::GetYaw() const { return yaw_; }
 
+std::ostream& operator<<(std::ostream& os, const State& state) {
+  os << "{id: " << state.GetId() << ", x: " << state.GetX() << ", y: " << state.GetY() << ", yaw: " << state.GetYaw()
+     << ", cost_to_come: " << state.cost_to_come_ << ", parent_id: " << (state.parent_ ? state.parent_->GetId() : -1)
+     << "}";
+  return os;
+}
+
 }  // namespace ellis_planner

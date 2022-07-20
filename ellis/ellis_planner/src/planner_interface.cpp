@@ -64,6 +64,7 @@ bool PlannerInterface::InitializePlanner(ros::NodeHandle* nh) {
   env_.SetExecutionErrorNeighborhoodParameters(Environment::ExecutionErrorNeighborhoodParameters(
     cfg_.Get<double>("exec_error_state_radius_pos"), cfg_.Get<double>("exec_error_state_radius_yaw"),
     cfg_.Get<double>("exec_error_action_radius"), cfg_.Get<double>("exec_error_penalty")));
+  NODELET_ERROR_STREAM("Params: " << env_.GetExecutionErrorNeighborhoodParameters());
 
   return true;
 }
@@ -145,6 +146,18 @@ void PlannerInterface::PlanCallback(const ff_msgs::PlanGoal& goal) {
     for (const auto& action : env_.GetActions()) NODELET_ERROR_STREAM("  " << action);
     result.response = ff_msgs::PlanResult::BAD_ARGUMENTS;
     return PlanResult(result);
+  }
+
+  NODELET_ERROR("-----");
+  NODELET_ERROR_STREAM("state: " << *start_state);
+  for (const auto& nbhd : env_.GetExecutionErrorNeighborhoods()) {
+    NODELET_ERROR_STREAM("  nbhd: " << nbhd);
+    for (const auto& action : env_.GetActions()) {
+      NODELET_ERROR_STREAM(
+        "    action: " << action << ", contains? "
+                       << (nbhd.Contains(start_state, action, env_.GetExecutionErrorNeighborhoodParameters()) ? "YES"
+                                                                                                              : "NO"));
+    }
   }
 
   std::vector<Waypoint> waypoints;

@@ -2,6 +2,8 @@
 #ifndef ELLIS_PLANNER_STATE_H_
 #define ELLIS_PLANNER_STATE_H_
 
+#include <iostream>
+
 namespace ellis_planner {
 
 constexpr unsigned int kStateDim = 3;  // (x, y, yaw)
@@ -31,6 +33,8 @@ class State {
   double y_;
   double yaw_;
 };
+
+std::ostream& operator<<(std::ostream& os, const State& state);
 
 }  // namespace ellis_planner
 
