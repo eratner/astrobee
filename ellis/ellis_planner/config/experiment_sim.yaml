@@ -1,0 +1,35 @@
+experiment_manager:
+  waypoints:
+    - x: 0.0
+      y: 0.0
+      yaw: 0.0
+    - x: -0.45
+      y: 0.35
+      yaw: 0.0
+      planner: ellis
+    - x: 0.7
+      y: 0.35
+      yaw: 0.0
+      planner: ellis
+
+fake_obstacle_manager:
+  freq: 10.0
+  world_frame_id: world
+  gazebo_ns: /gazebo
+  topics:
+    vis: /mob/ellis_planner/vis
+  obstacles:
+    - name: obstacle1
+      size:
+        x: 0.1
+        y: 0.5
+        z: 0.1
+      pose:
+        pos:
+          x: 0.3
+          y: 0
+          z: -0.5
+        orien:
+          roll: 0
+          pitch: 0
+          yaw: 0

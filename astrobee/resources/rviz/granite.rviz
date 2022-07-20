@@ -8,7 +8,7 @@ Panels:
         - /Debug1/Sensors1
         - "/Debug1/Sensors1/DEBUG: NavCam1"
         - /Debug1/Mobility1
-      Splitter Ratio: 0.579250693
+      Splitter Ratio: 0.544303775
     Tree Height: 276
   - Class: rviz/Selection
     Name: Selection
@@ -645,10 +645,10 @@ Visualization Manager:
               Value: true
             - Class: rviz/Marker
               Enabled: true
-              Marker Topic: /mob/planner_ellis/vis
+              Marker Topic: /mob/ellis_planner/vis
               Name: Ellis
               Namespaces:
-                {}
+                /fake_obstacle_manager/obstacle1: true
               Queue Size: 100
               Value: true
           Enabled: true
@@ -680,16 +680,16 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/Orbit
-      Distance: 1.06954694
+      Distance: 1.05692053
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.0599999987
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: -0.0357269906
-        Y: -2.39005232
-        Z: 1.45076084
+        X: 0.166133448
+        Y: -2.43704844
+        Z: 1.25628316
       Focal Shape Fixed Size: true
       Focal Shape Size: 0.0500000007
       Invert Z Axis: false
@@ -721,4 +721,4 @@ Window Geometry:
     collapsed: false
   Width: 1081
   X: 144
-  Y: 54
+  Y: 0

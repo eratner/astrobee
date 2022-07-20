@@ -1,0 +1,18 @@
+<?xml version="1.0"?>
+<launch>
+  <!-- Load experiment parameters. -->
+  <rosparam command="load"
+            file="$(find ellis_planner)/config/experiment_sim.yaml" />
+
+  <!-- Run the fake obstacle manager. -->
+  <node name="fake_obstacle_manager"
+        type="fake_obstacle_manager.py"
+        pkg="ellis_planner"
+        output="screen" />
+
+  <!-- Run the experiment manager. -->
+  <node name="experiment_manager"
+        type="exp"
+        pkg="ellis_planner"
+        output="screen" />
+</launch>

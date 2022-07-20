@@ -16,6 +16,54 @@ Environment::Action::Action(const std::string& name, double change_in_x, double 
                             double cost)
     : name_(name), change_in_x_(change_in_x), change_in_y_(change_in_y), change_in_yaw_(change_in_yaw), cost_(cost) {}
 
+Environment::ExecutionErrorNeighborhoodParameters::ExecutionErrorNeighborhoodParameters(double state_radius_pos,
+                                                                                        double state_radius_yaw,
+                                                                                        double action_radius_pos,
+                                                                                        double penalty)
+    : state_radius_pos_(state_radius_pos),
+      state_radius_yaw_(state_radius_yaw),
+      action_radius_pos_(action_radius_pos),
+      penalty_(penalty) {}
+
+Environment::ExecutionErrorNeighborhood::ExecutionErrorNeighborhood(double x, double y, double yaw, double action_dir_x,
+                                                                    double action_dir_y, double action_dir_yaw)
+    : x_(x),
+      y_(y),
+      yaw_(yaw),
+      action_dir_x_(action_dir_x),
+      action_dir_y_(action_dir_y),
+      action_dir_yaw_(action_dir_yaw) {}
+
+bool Environment::ExecutionErrorNeighborhood::Contains(const State::Ptr state, const Action& action,
+                                                       const ExecutionErrorNeighborhoodParameters& params) const {
+  // Check distance in state position.
+  if (std::sqrt(std::pow(state->GetX() - x_, 2) + std::pow(state->GetY() - y_, 2)) > params.state_radius_pos_)
+    return false;
+
+  // Check distance in state orientation.
+  if (std::abs(AngularDist(state->GetYaw(), yaw_)) > params.state_radius_yaw_) return false;
+
+  // TODO(eratner) Define a better measure of yaw action distance
+  double action_dir_yaw = 0.0;
+  if (std::abs(action.change_in_yaw_) > 1e-6) {
+    if (action.change_in_yaw_ < 0.0)
+      action_dir_yaw = -1.0;
+    else
+      action_dir_yaw = 1.0;
+  }
+  if (std::abs(action_dir_yaw - action_dir_yaw_) > 1e-6) return false;
+
+  // Check distance in the action (position/velocity only)-- defined as the angle between the action direction vectors.
+  double n = std::sqrt(std::pow(action.change_in_x_, 2) + std::pow(action.change_in_y_, 2));
+  // TODO(eratner) Ensure n != 0
+  double action_dir_x = action.change_in_x_ / n;
+  double action_dir_y = action.change_in_y_ / n;
+  double angle_between_actions = std::acos(action_dir_x * action_dir_x_ + action_dir_y * action_dir_y_);
+  if (std::abs(angle_between_actions) > params.action_radius_pos_) return false;
+
+  return true;
+}
+
 Environment::Environment()
     : m_per_unit_x_(1e-2),
       m_per_unit_y_(1e-2),
@@ -118,6 +166,21 @@ double Environment::GetHeuristicCostToGoal(const State::Ptr state) const {
 
   // TODO(eratner) Because of goal tolerances, this could slightly overestimate the cost
   return (std::abs(goal_x_ - state->GetX()) + std::abs(goal_y_ - state->GetY()));
+}
+
+void Environment::SetExecutionErrorNeighborhoodParameters(const ExecutionErrorNeighborhoodParameters& params) {
+  exec_error_params_ = params;
+}
+
+void Environment::AddExecutionErrorNeighborhood(const ExecutionErrorNeighborhood& n) {
+  // TODO(eratner) Avoid adding duplicates (i.e., neighborhoods with almost identical intersections)
+  exec_error_neighborhoods_.push_back(n);
+}
+
+void Environment::ClearExecutionErrorNeighborhoods() { exec_error_neighborhoods_.clear(); }
+
+const std::vector<Environment::ExecutionErrorNeighborhood>& Environment::GetExecutionErrorNeighborhoods() const {
+  return exec_error_neighborhoods_;
 }
 
 Environment::DiscreteState::DiscreteState(int x_disc, int y_disc, int yaw_disc)

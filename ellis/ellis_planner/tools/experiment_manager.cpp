@@ -68,6 +68,13 @@ class ExperimentManager {
 
     report_execution_error_client_ = nh_.serviceClient<std_srvs::Trigger>("/mob/ellis_planner/report_execution_error");
 
+    while (ros::ok()) {
+      if (report_execution_error_client_.waitForExistence(ros::Duration(0.25)))
+        break;
+      else
+        ros::spinOnce();
+    }
+
     return true;
   }
 
@@ -109,7 +116,7 @@ class ExperimentManager {
           break;
         }
         case REPLAN_NEEDED: {
-          const auto& waypoint = waypoint_[waypoint_index];
+          const auto& waypoint = waypoint_[waypoint_index - 1];
           ROS_INFO_STREAM("Replanning to waypoint " << waypoint_index - 1 << ": (" << waypoint[0] << ", " << waypoint[1]
                                                     << ", " << waypoint[2] << ")");
           if (!MoveTo(waypoint[0], waypoint[1], waypoint[2])) {
@@ -171,6 +178,19 @@ class ExperimentManager {
     return true;
   }
 
+  // Puts the robot into a "station keeping" mode to stop all motion.
+  bool Stop() {
+    ff_msgs::MotionGoal goal;
+    goal.flight_mode = "nominal";
+    goal.command = ff_msgs::MotionGoal::STOP;
+    if (!mobility_client_.SendGoal(goal)) {
+      ROS_ERROR("[ExperimentManager] Mobility client did not accept stop goal");
+      return false;
+    }
+
+    return true;
+  }
+
   bool GetPose(double& x, double& y, double& z, double& yaw) {
     geometry_msgs::TransformStamped world_to_body;
     try {
@@ -219,13 +239,13 @@ class ExperimentManager {
             // A discrepancy occurred!
             ROS_WARN("[ExperimentManager] Something unexpected occurred!");
 
-            // Report the execution failure.
+            // Report the execution error.
             std_srvs::Trigger srv;
             if (report_execution_error_client_.call(srv)) {
               ROS_INFO("[ExperimentManager] Reporting execution error...");
               state_ = REPLAN_NEEDED;
             } else {
-              ROS_ERROR("[Experiment] Failed to call service to add discrepancy");
+              ROS_ERROR("[ExperimentManager] Failed to call service to report an execution error");
               state_ = ERROR;
             }
 

@@ -33,13 +33,15 @@ bool Search::Run(State::Ptr start_state, std::vector<State::Ptr>& path) {
     for (const auto& action : actions) {
       auto outcome_and_cost = env_->GetOutcome(state, action);
       auto outcome_state = std::get<0>(outcome_and_cost);
-      auto cost = std::get<1>(outcome_and_cost);
-      double cost_to_come_via = state->cost_to_come_ + cost;
-      if (cost_to_come_via < outcome_state->cost_to_come_) {
-        outcome_state->cost_to_come_ = cost_to_come_via;
-        outcome_state->parent_ = state;
-        open.insert(std::make_tuple(outcome_state->cost_to_come_ + env_->GetHeuristicCostToGoal(outcome_state),
-                                    outcome_state->GetId()));
+      if (outcome_state) {
+        auto cost = std::get<1>(outcome_and_cost);
+        double cost_to_come_via = state->cost_to_come_ + cost;
+        if (cost_to_come_via < outcome_state->cost_to_come_) {
+          outcome_state->cost_to_come_ = cost_to_come_via;
+          outcome_state->parent_ = state;
+          open.insert(std::make_tuple(outcome_state->cost_to_come_ + env_->GetHeuristicCostToGoal(outcome_state),
+                                      outcome_state->GetId()));
+        }
       }
     }
   }

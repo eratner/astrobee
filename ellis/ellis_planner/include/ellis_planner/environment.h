@@ -26,6 +26,31 @@ class Environment {
     double cost_;
   };
 
+  struct ExecutionErrorNeighborhoodParameters {
+    explicit ExecutionErrorNeighborhoodParameters(double state_radius_pos = 0.2, double state_radius_yaw = 0.5,
+                                                  double action_radius_pos = 0.2, double penalty = 0.0);
+
+    double state_radius_pos_;
+    double state_radius_yaw_;
+    double action_radius_pos_;
+    double penalty_;
+  };
+
+  struct ExecutionErrorNeighborhood {
+    explicit ExecutionErrorNeighborhood(double x = 0.0, double y = 0.0, double yaw = 0.0, double action_dir_x = 0.0,
+                                        double action_dir_y = 0.0, double action_dir_yaw = 0.0);
+
+    bool Contains(const State::Ptr state, const Action& action,
+                  const ExecutionErrorNeighborhoodParameters& params) const;
+
+    double x_;
+    double y_;
+    double yaw_;
+    double action_dir_x_;
+    double action_dir_y_;
+    double action_dir_yaw_;
+  };
+
   Environment();
 
   ~Environment();
@@ -55,6 +80,14 @@ class Environment {
 
   // TODO(eratner) Might be better to have a separate Heuristic class
   double GetHeuristicCostToGoal(const State::Ptr state) const;
+
+  void SetExecutionErrorNeighborhoodParameters(const ExecutionErrorNeighborhoodParameters& params);
+
+  void AddExecutionErrorNeighborhood(const ExecutionErrorNeighborhood& n);
+
+  void ClearExecutionErrorNeighborhoods();
+
+  const std::vector<ExecutionErrorNeighborhood>& GetExecutionErrorNeighborhoods() const;
 
   struct DiscreteState {
     explicit DiscreteState(int x_disc = 0, int y_disc = 0, int yaw_disc = 0);
@@ -94,6 +127,10 @@ class Environment {
   std::unordered_map<DiscreteState, unsigned int, DiscreteState::HashFunction> discrete_state_to_id_;
 
   std::vector<Action> actions_;
+
+  // Execution errors.
+  ExecutionErrorNeighborhoodParameters exec_error_params_;
+  std::vector<ExecutionErrorNeighborhood> exec_error_neighborhoods_;
 };
 
 }  // namespace ellis_planner

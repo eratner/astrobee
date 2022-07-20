@@ -12,6 +12,7 @@
 #include <ellis_planner/search.h>
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2/utils.h>
+#include <std_srvs/Trigger.h>
 #include <string>
 #include <vector>
 #include <cmath>
@@ -42,12 +43,16 @@ class PlannerInterface : public planner::PlannerImplementation {
   void PublishPoseMarker(double x, double y, double z, double yaw, const std::string& name = "pose",
                          bool show_name = true, double r = 1.0, double g = 0.0, double b = 0.0, double a = 0.75);
 
+  bool ReportExecutionError(std_srvs::Trigger::Request& req, std_srvs::Trigger::Response& res);
+
   ff_util::ConfigServer cfg_;
 
   tf2_ros::Buffer tf_buffer_;
   tf2_ros::TransformListener tf_listener_;
 
   ros::Publisher vis_pub_;
+
+  ros::ServiceServer report_execution_error_srv_;
 
   double nominal_lin_vel_;
   double nominal_ang_vel_;

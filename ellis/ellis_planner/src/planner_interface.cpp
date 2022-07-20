@@ -21,8 +21,11 @@ bool PlannerInterface::InitializePlanner(ros::NodeHandle* nh) {
   cfg_.Listen(boost::bind(&PlannerInterface::ReconfigureCallback, this, _1));
 
   // TODO(eratner) Read topic name from config
-  std::string vis_topic = "/mob/planner_ellis/vis";
+  std::string vis_topic = "/mob/ellis_planner/vis";
   vis_pub_ = nh->advertise<visualization_msgs::Marker>(vis_topic, 50);
+
+  report_execution_error_srv_ =
+    nh->advertiseService("/mob/ellis_planner/report_execution_error", &PlannerInterface::ReportExecutionError, this);
 
   nominal_lin_vel_ = cfg_.Get<double>("nominal_lin_vel");
   nominal_ang_vel_ = cfg_.Get<double>("nominal_ang_vel");
@@ -37,13 +40,15 @@ bool PlannerInterface::InitializePlanner(ros::NodeHandle* nh) {
   //  Environment::Action("rot_ccw", 0.0, 0.0, 0.2, 0.2),      Environment::Action("rot_cw", 0.0, 0.0, -0.2, 0.2)};
   env_.SetActions(actions);
 
+  env_.SetExecutionErrorNeighborhoodParameters(Environment::ExecutionErrorNeighborhoodParameters(
+    cfg_.Get<double>("exec_error_state_radius_pos"), cfg_.Get<double>("exec_error_state_radius_yaw"),
+    cfg_.Get<double>("exec_error_action_radius"), cfg_.Get<double>("exec_error_penalty")));
+
   return true;
 }
 
 bool PlannerInterface::ReconfigureCallback(dynamic_reconfigure::Config& config) {
   if (!cfg_.Reconfigure(config)) return false;
-
-  // TODO(eratner) Implement this
 
   return true;
 }
@@ -94,6 +99,8 @@ void PlannerInterface::PlanCallback(const ff_msgs::PlanGoal& goal) {
   double goal_yaw = tf2::getYaw(goal_pose.orientation);
   ros::Time offset = ros::Time::now();
 
+  // TODO(eratner) Check if goal is out-of-bounds
+
   double start_x = 0.0, start_y = 0.0, start_z = 0.0, start_yaw = 0.0;
   if (!GetPose(start_x, start_y, start_z, start_yaw)) {
     result.response = ff_msgs::PlanResult::BAD_ARGUMENTS;
@@ -103,7 +110,6 @@ void PlannerInterface::PlanCallback(const ff_msgs::PlanGoal& goal) {
   PublishPoseMarker(start_x, start_y, start_z, start_yaw, "ellis/start");
   PublishPoseMarker(goal_pose.position.x, goal_pose.position.y, goal_pose.position.z, goal_yaw, "ellis/goal");
 
-  // TODO(eratner) Implement planner here
   env_.SetGoal(goal_pose.position.x, goal_pose.position.y, goal_yaw);
   std::vector<ellis_planner::State::Ptr> path;
   auto start_state = env_.GetState(start_x, start_y, start_yaw);
@@ -116,8 +122,6 @@ void PlannerInterface::PlanCallback(const ff_msgs::PlanGoal& goal) {
   }
 
   std::vector<Waypoint> waypoints;
-  // waypoints.push_back({start_x, start_y, start_yaw});
-  // waypoints.push_back({goal_pose.position.x, goal_pose.position.y, goal_yaw});
   for (const auto state : path) {
     waypoints.push_back({state->GetX(), state->GetY(), state->GetYaw()});
   }
@@ -319,6 +323,21 @@ void PlannerInterface::PublishPoseMarker(double x, double y, double z, double ya
     name_msg.text = name;
     vis_pub_.publish(name_msg);
   }
+}
+
+bool PlannerInterface::ReportExecutionError(std_srvs::Trigger::Request& req, std_srvs::Trigger::Response& res) {
+  // Get the robot's current pose.
+  double x = 0.0, y = 0.0, z = 0.0, yaw = 0.0;
+  if (!GetPose(x, y, z, yaw)) {
+    NODELET_ERROR("Failed to get pose of robot!");
+    res.success = false;
+    return false;
+  }
+
+  // TODO(eratner) Update the planning model
+
+  res.success = true;
+  return true;
 }
 
 }  // namespace ellis_planner
