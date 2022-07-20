@@ -157,6 +157,14 @@ std::tuple<State::Ptr, double> Environment::GetOutcome(const State::Ptr state, c
 
   // TODO(eratner) Collision checking goes here
 
+  double cost = action.cost_;
+  for (const auto& nbhd : exec_error_neighborhoods_) {
+    if (nbhd.Contains(state, action, exec_error_params_)) {
+      cost += exec_error_params_.penalty_;
+      break;
+    }
+  }
+
   auto outcome = GetState(x, y, yaw);
   return std::make_tuple(outcome, action.cost_);
 }
@@ -170,6 +178,10 @@ double Environment::GetHeuristicCostToGoal(const State::Ptr state) const {
 
 void Environment::SetExecutionErrorNeighborhoodParameters(const ExecutionErrorNeighborhoodParameters& params) {
   exec_error_params_ = params;
+}
+
+const Environment::ExecutionErrorNeighborhoodParameters& Environment::GetExecutionErrorNeighborhoodParameters() const {
+  return exec_error_params_;
 }
 
 void Environment::AddExecutionErrorNeighborhood(const ExecutionErrorNeighborhood& n) {

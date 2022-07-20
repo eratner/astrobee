@@ -189,6 +189,8 @@ void PlannerInterface::PlanCallback(const ff_msgs::PlanGoal& goal) {
     time += time_between_waypoints;
   }
 
+  last_trajectory_ = result.segment;
+
   PlanResult(result);
 }
 
@@ -334,10 +336,121 @@ bool PlannerInterface::ReportExecutionError(std_srvs::Trigger::Request& req, std
     return false;
   }
 
-  // TODO(eratner) Update the planning model
+  // Find the closest waypoint to the robot's current pose.
+  int closest_index = -1;
+  double closest_dist = 1e9;
+  double closest_angle = 1e9;
+  for (int i = 0; i < last_trajectory_.size(); ++i) {
+    const auto& waypoint = last_trajectory_[i];
+    double dist = std::sqrt(std::pow(waypoint.pose.position.x - x, 2) + std::pow(waypoint.pose.position.y - y, 2));
+    double waypoint_yaw = tf2::getYaw(waypoint.pose.orientation);
+    double angle = std::abs(AngularDist(tf2::getYaw(waypoint.pose.orientation), yaw));
+    if (dist < closest_dist && (std::abs(angle - closest_angle) < 1e-3 || angle < closest_angle)) {
+      closest_dist = dist;
+      closest_angle = angle;
+      closest_index = i;
+    }
+  }
+
+  if (closest_index < 0) {
+    NODELET_ERROR("Failed to find closest waypoint in last trajectory!");
+    return false;
+  }
+
+  auto waypoint = last_trajectory_[closest_index];
+  double n = std::sqrt(std::pow(waypoint.twist.linear.x, 2) + std::pow(waypoint.twist.linear.y, 2));
+  if (std::abs(n) < 1e-6) {
+    NODELET_WARN_STREAM("Waypoint at index " << closest_index << " has zero velocity, so using waypoint at index "
+                                             << closest_index - 1 << " or index " << closest_index + 1);
+    waypoint = last_trajectory_[(closest_index > 0 ? closest_index - 1 : closest_index + 1)];
+    n = std::sqrt(std::pow(waypoint.twist.linear.x, 2) + std::pow(waypoint.twist.linear.y, 2));
+    if (std::abs(n) < 1e-6) {
+      NODELET_ERROR_STREAM("Waypoints at indices " << closest_index << " and "
+                                                   << (closest_index > 0 ? closest_index - 1 : closest_index + 1)
+                                                   << " both have velocity of zero!");
+      return false;
+    }
+  }
+
+  double yaw_dir = 0.0;
+  if (std::abs(waypoint.twist.linear.z) > 1e-6) {
+    if (waypoint.twist.linear.z > 0.0)
+      yaw_dir = 1.0;
+    else
+      yaw_dir = -1.0;
+  }
+  env_.AddExecutionErrorNeighborhood(Environment::ExecutionErrorNeighborhood(x, y, yaw, waypoint.twist.linear.x / n,
+                                                                             waypoint.twist.linear.y / n, yaw_dir));
+  NODELET_ERROR_STREAM("Exec error at (" << x << ", " << y << ", " << yaw << "), action lin vel: ("
+                                         << waypoint.twist.linear.x << ", " << waypoint.twist.linear.y
+                                         << "), ang vel: " << waypoint.twist.angular.z << ", n: " << n);
+
+  PublishExecutionErrorNeighborhoodMarkers();
 
   res.success = true;
   return true;
+}
+
+void PlannerInterface::PublishExecutionErrorNeighborhoodMarkers() {
+  const auto& nbhds = env_.GetExecutionErrorNeighborhoods();
+  for (int i = 0; i < nbhds.size(); ++i) {
+    const auto& nbhd = nbhds[i];
+
+    // Visualize the state position neighborhood.
+    visualization_msgs::Marker state_pos_msg;
+    state_pos_msg.header.frame_id = std::string(FRAME_NAME_WORLD);
+    state_pos_msg.ns = "/mob/ellis_planner/error_nbhds/pos";
+    state_pos_msg.id = i;
+    state_pos_msg.type = visualization_msgs::Marker::SPHERE;
+    state_pos_msg.pose.position.x = nbhd.x_;
+    state_pos_msg.pose.position.y = nbhd.y_;
+    state_pos_msg.pose.position.z = -0.674614;  // TODO(eratner) Fix this
+    state_pos_msg.pose.orientation.x = 0;
+    state_pos_msg.pose.orientation.y = 0;
+    state_pos_msg.pose.orientation.z = 0;
+    state_pos_msg.pose.orientation.w = 1;
+    state_pos_msg.color.r = 0;
+    state_pos_msg.color.g = 0.5;
+    state_pos_msg.color.b = 0.5;
+    state_pos_msg.color.a = 0.5;
+    state_pos_msg.scale.x = env_.GetExecutionErrorNeighborhoodParameters().state_radius_pos_;
+    state_pos_msg.scale.y = env_.GetExecutionErrorNeighborhoodParameters().state_radius_pos_;
+    state_pos_msg.scale.z = env_.GetExecutionErrorNeighborhoodParameters().state_radius_pos_;
+    vis_pub_.publish(state_pos_msg);
+
+    visualization_msgs::Marker action_msg;
+    action_msg.header.frame_id = std::string(FRAME_NAME_WORLD);
+    action_msg.ns = "/mob/ellis_planner/error_nbhds/action";
+    action_msg.id = i;
+    action_msg.type = visualization_msgs::Marker::ARROW;
+    action_msg.pose.position.x =
+      nbhd.x_ + 0.5 * env_.GetExecutionErrorNeighborhoodParameters().state_radius_pos_ * std::cos(nbhd.yaw_);
+    action_msg.pose.position.y =
+      nbhd.y_ + 0.5 * env_.GetExecutionErrorNeighborhoodParameters().state_radius_pos_ * std::sin(nbhd.yaw_);
+    action_msg.pose.position.z = -0.674614;  // TODO(eratner) Fix this
+    tf2::Quaternion orien;
+    if (std::abs(nbhd.action_dir_yaw_) > 1e-6) {
+      if (nbhd.action_dir_yaw_ > 0.0)
+        orien.setRPY(-M_PI_2, 0.0, 0.0);
+      else
+        orien.setRPY(M_PI_2, 0.0, 0.0);
+    } else {
+      double angle = std::atan2(nbhd.action_dir_y_, nbhd.action_dir_x_);
+      orien.setRPY(0.0, 0.0, angle);
+    }
+    action_msg.pose.orientation.x = orien.x();
+    action_msg.pose.orientation.y = orien.y();
+    action_msg.pose.orientation.z = orien.z();
+    action_msg.pose.orientation.w = orien.w();
+    action_msg.color.r = 0;
+    action_msg.color.g = 0.5;
+    action_msg.color.b = 0.5;
+    action_msg.color.a = 0.5;
+    action_msg.scale.x = env_.GetExecutionErrorNeighborhoodParameters().state_radius_pos_;
+    action_msg.scale.y = 0.05;
+    action_msg.scale.z = 0.05;
+    vis_pub_.publish(action_msg);
+  }
 }
 
 }  // namespace ellis_planner

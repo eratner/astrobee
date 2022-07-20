@@ -45,6 +45,8 @@ class PlannerInterface : public planner::PlannerImplementation {
 
   bool ReportExecutionError(std_srvs::Trigger::Request& req, std_srvs::Trigger::Response& res);
 
+  void PublishExecutionErrorNeighborhoodMarkers();
+
   ff_util::ConfigServer cfg_;
 
   tf2_ros::Buffer tf_buffer_;
@@ -60,6 +62,8 @@ class PlannerInterface : public planner::PlannerImplementation {
   // Planning.
   Environment env_;
   Search search_;
+
+  std::vector<ff_msgs::ControlState> last_trajectory_;
 };
 
 }  // namespace ellis_planner

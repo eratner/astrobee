@@ -83,6 +83,8 @@ class Environment {
 
   void SetExecutionErrorNeighborhoodParameters(const ExecutionErrorNeighborhoodParameters& params);
 
+  const ExecutionErrorNeighborhoodParameters& GetExecutionErrorNeighborhoodParameters() const;
+
   void AddExecutionErrorNeighborhood(const ExecutionErrorNeighborhood& n);
 
   void ClearExecutionErrorNeighborhoods();
