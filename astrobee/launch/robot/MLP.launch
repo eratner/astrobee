@@ -177,6 +177,7 @@
     <arg name="debug" value="$(arg debug)" />
     <arg name="default" value="true" />
   </include>
+  <rosparam command="load" file="$(find ellis_planner)/config/actions.yaml" />
   <include file="$(find ff_util)/launch/ff_nodelet.launch">
     <arg name="class" value="ellis_planner/PlannerInterface" />
     <arg name="name" value="ellis_planner" />

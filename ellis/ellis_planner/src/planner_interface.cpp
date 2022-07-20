@@ -30,14 +30,35 @@ bool PlannerInterface::InitializePlanner(ros::NodeHandle* nh) {
   nominal_lin_vel_ = cfg_.Get<double>("nominal_lin_vel");
   nominal_ang_vel_ = cfg_.Get<double>("nominal_ang_vel");
 
-  // TODO(eratner) Read actions from config
-  std::vector<Environment::Action> actions = {
-    Environment::Action("move_pos_x", 0.05, 0.0, 0.0, 0.05),
-    Environment::Action("move_neg_x", -0.05, 0.0, 0.0, 0.05),
-    Environment::Action("move_pos_y", 0.0, 0.05, 0.0, 0.05),
-    Environment::Action("move_neg_y", 0.0, -0.05, 0.0, 0.05),
-  };
-  //  Environment::Action("rot_ccw", 0.0, 0.0, 0.2, 0.2),      Environment::Action("rot_cw", 0.0, 0.0, -0.2, 0.2)};
+  std::vector<Environment::Action> actions;
+  XmlRpc::XmlRpcValue action_info;
+  if (nh->getParam("ellis_planner/actions", action_info)) {
+    for (int i = 0; i < action_info.size(); ++i) {
+      const auto& info = action_info[i];
+
+      Environment::Action action;
+
+      if (!info.hasMember("name")) {
+        NODELET_WARN_STREAM("Action " << i << " has no name!");
+        continue;
+      }
+      action.name_ = static_cast<std::string>(info["name"]);
+
+      if (info.hasMember("change_in_x")) action.change_in_x_ = static_cast<double>(info["change_in_x"]);
+      if (info.hasMember("change_in_y")) action.change_in_y_ = static_cast<double>(info["change_in_y"]);
+      if (info.hasMember("change_in_yaw")) action.change_in_yaw_ = static_cast<double>(info["change_in_yaw"]);
+
+      if (!info.hasMember("cost")) {
+        NODELET_WARN_STREAM("Action " << i << " has no cost!");
+        continue;
+      }
+      action.cost_ = static_cast<double>(info["cost"]);
+
+      actions.push_back(action);
+    }
+  } else {
+    NODELET_WARN("Failed to get actions from ellis_planner/actions");
+  }
   env_.SetActions(actions);
 
   env_.SetExecutionErrorNeighborhoodParameters(Environment::ExecutionErrorNeighborhoodParameters(
@@ -110,6 +131,9 @@ void PlannerInterface::PlanCallback(const ff_msgs::PlanGoal& goal) {
   PublishPoseMarker(start_x, start_y, start_z, start_yaw, "ellis/start");
   PublishPoseMarker(goal_pose.position.x, goal_pose.position.y, goal_pose.position.z, goal_yaw, "ellis/goal");
 
+  // TODO(eratner) This may be inefficient, but makes sure old search data is not carried over into subsequent searches
+  env_.Clear();
+
   env_.SetGoal(goal_pose.position.x, goal_pose.position.y, goal_yaw);
   std::vector<ellis_planner::State::Ptr> path;
   auto start_state = env_.GetState(start_x, start_y, start_yaw);
@@ -117,6 +141,8 @@ void PlannerInterface::PlanCallback(const ff_msgs::PlanGoal& goal) {
     NODELET_ERROR_STREAM("Could not find a path to the goal, with start ("
                          << start_x << ", " << start_y << ", " << start_yaw << ") and goal (" << goal_pose.position.x
                          << ", " << goal_pose.position.y << ", " << goal_yaw << ")");
+    NODELET_ERROR(" Actions: ");
+    for (const auto& action : env_.GetActions()) NODELET_ERROR_STREAM("  " << action);
     result.response = ff_msgs::PlanResult::BAD_ARGUMENTS;
     return PlanResult(result);
   }

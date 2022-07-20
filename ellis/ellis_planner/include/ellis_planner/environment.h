@@ -135,6 +135,8 @@ class Environment {
   std::vector<ExecutionErrorNeighborhood> exec_error_neighborhoods_;
 };
 
+std::ostream& operator<<(std::ostream& os, const Environment::Action& action);
+
 }  // namespace ellis_planner
 
 #endif  // ELLIS_PLANNER_ENVIRONMENT_H_

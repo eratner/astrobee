@@ -1,0 +1,20 @@
+ellis_planner:
+  actions:
+    - name: move_pos_x
+      change_in_x: 0.05
+      cost: 0.05
+    - name: move_neg_x
+      change_in_x: -0.05
+      cost: 0.05
+    - name: move_pos_y
+      change_in_y: 0.05
+      cost: 0.05
+    - name: move_neg_y
+      change_in_y: -0.05
+      cost: 0.05
+    - name: rot_ccw
+      change_in_yaw: 0.2
+      cost: 0.2
+    - name: rot_cw
+      change_in_yaw: -0.2
+      cost: 0.2

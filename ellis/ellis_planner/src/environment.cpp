@@ -55,11 +55,12 @@ bool Environment::ExecutionErrorNeighborhood::Contains(const State::Ptr state, c
 
   // Check distance in the action (position/velocity only)-- defined as the angle between the action direction vectors.
   double n = std::sqrt(std::pow(action.change_in_x_, 2) + std::pow(action.change_in_y_, 2));
-  // TODO(eratner) Ensure n != 0
-  double action_dir_x = action.change_in_x_ / n;
-  double action_dir_y = action.change_in_y_ / n;
-  double angle_between_actions = std::acos(action_dir_x * action_dir_x_ + action_dir_y * action_dir_y_);
-  if (std::abs(angle_between_actions) > params.action_radius_pos_) return false;
+  if (n > 1e-6) {
+    double action_dir_x = action.change_in_x_ / n;
+    double action_dir_y = action.change_in_y_ / n;
+    double angle_between_actions = std::acos(action_dir_x * action_dir_x_ + action_dir_y * action_dir_y_);
+    if (std::abs(angle_between_actions) > params.action_radius_pos_) return false;
+  }
 
   return true;
 }
@@ -208,6 +209,13 @@ std::size_t Environment::DiscreteState::HashFunction::operator()(const DiscreteS
   boost::hash_combine(seed, state.y_disc_);
   boost::hash_combine(seed, state.yaw_disc_);
   return seed;
+}
+
+std::ostream& operator<<(std::ostream& os, const Environment::Action& action) {
+  os << "{name: " << action.name_ << ", change_in_x: " << action.change_in_x_
+     << ", change_in_y: " << action.change_in_y_ << ", change_in_yaw: " << action.change_in_yaw_
+     << ", cost: " << action.cost_ << "}";
+  return os;
 }
 
 }  // namespace ellis_planner
