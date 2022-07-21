@@ -4,9 +4,10 @@
   <rosparam command="load" file="$(find ellis_planner)/config/experiment.yaml" />
 
   <!-- Record data to ROS bag. -->
-  <!-- TODO(eratner) Implement this... -->
-  <!-- <node pkg="rosbag" type="record" name="rosbag_recorder" -->
-  <!--       args="record -o /tmp/ellis-experiment /tf /mob/ellis_planner/vis /mob/choreographer/segment" /> -->
+  <node pkg="rosbag"
+        type="record"
+        name="rosbag_recorder"
+        args="record -o /tmp/ellis-experiment /tf /tf_static /mob/ellis_planner/vis /mob/choreographer/segment /mob/motion/feedback" />
 
   <!-- Run the experiment manager. -->
   <node name="experiment_manager" type="exp" pkg="ellis_planner" output="screen" />
