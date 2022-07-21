@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<launch>
+  <arg name="bag" default="data.bag" />
+  <arg name="delay" default="5.0" />
+
+  <!-- Start the descriptions for visualization purposes. -->
+  <env if="$(eval optenv('ASTROBEE_CONFIG_DIR','')=='')"
+       name="ASTROBEE_CONFIG_DIR" value="$(find astrobee)/config" />
+  <include file="$(find astrobee)/launch/controller/descriptions.launch">
+    <arg name="world" value="granite"/>
+  </include>
+  <param name="robot_description"
+         command='$(find xacro)/xacro --inorder $(find description)/urdf/model.urdf.xacro world:="granite" top_aft:="perching_arm" bot_aft:="empty" bot_front:="empty" ns:="_" prefix:="/"' />
+
+  <node pkg="rosbag" type="play" name="player" output="log"
+        args="--clock --loop --delay $(arg delay) $(arg bag)"/>
+
+  <node name="rviz_node" pkg="rviz" type="rviz" 
+        respawn="true"  output="log"
+        args="-d $(find astrobee)/resources/rviz/granite.rviz"/>
+</launch>

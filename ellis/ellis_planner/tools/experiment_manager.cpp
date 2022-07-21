@@ -9,13 +9,19 @@
 #include <tf2/utils.h>
 #include <ros/package.h>
 #include <std_srvs/Trigger.h>
+#include <boost/circular_buffer.hpp>
 #include <array>
 #include <string>
 #include <vector>
 
 class ExperimentManager {
  public:
-  ExperimentManager() : p_nh_("~"), tf_listener_(tf_buffer_), state_(READY), cfg_(&nh_, NODE_CHOREOGRAPHER) {}
+  ExperimentManager()
+      : p_nh_("~"),
+        tf_listener_(tf_buffer_),
+        state_(READY),
+        cfg_(&nh_, NODE_CHOREOGRAPHER),
+        control_feedback_history_(100) {}
 
   ~ExperimentManager() {}
 
@@ -150,6 +156,8 @@ class ExperimentManager {
       return false;
     }
 
+    control_feedback_history_.clear();
+
     ff_msgs::MotionGoal goal;
     goal.flight_mode = "nominal";
     goal.command = ff_msgs::MotionGoal::MOVE;
@@ -239,6 +247,14 @@ class ExperimentManager {
             // A discrepancy occurred!
             ROS_WARN("[ExperimentManager] Something unexpected occurred!");
 
+            for (const auto& f : control_feedback_history_) {
+              ROS_WARN_STREAM("  pos err: " << f.error_position << ", att err: " << f.error_attitude << ", x: "
+                                            << f.setpoint.pose.position.x << ", y: " << f.setpoint.pose.position.y
+                                            << ", yaw: " << tf2::getYaw(f.setpoint.pose.orientation) << ", vel x: "
+                                            << f.setpoint.twist.linear.x << ", vel y: " << f.setpoint.twist.linear.y
+                                            << ", vel yaw: " << f.setpoint.twist.angular.z);
+            }
+
             // Report the execution error.
             std_srvs::Trigger srv;
             if (report_execution_error_client_.call(srv)) {
@@ -269,6 +285,8 @@ class ExperimentManager {
               << "VEL: " << 1000.00 * feedback->progress.error_velocity << " mm/s "
               << "OMEGA: " << 57.2958 * feedback->progress.error_omega << " deg/s "
               << "[" << feedback->state.fsm_state << "]   ";
+
+    control_feedback_history_.push_back(feedback->progress);
   }
 
   ros::NodeHandle nh_;
@@ -281,6 +299,7 @@ class ExperimentManager {
   std::vector<std::array<double, 3>> waypoint_;
   std::vector<std::string> planner_type_;
   ros::ServiceClient report_execution_error_client_;
+  boost::circular_buffer<ff_msgs::ControlFeedback> control_feedback_history_;
 };
 
 int main(int argc, char* argv[]) {

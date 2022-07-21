@@ -4,6 +4,12 @@
   <rosparam command="load"
             file="$(find ellis_planner)/config/experiment_sim.yaml" />
 
+  <!-- Record data to ROS bag. -->
+  <node pkg="rosbag"
+        type="record"
+        name="rosbag_recorder"
+        args="record -o /tmp/ellis-experiment /tf /tf_static /mob/ellis_planner/vis /mob/choreographer/segment /mob/motion/feedback" />
+
   <!-- Run the fake obstacle manager. -->
   <node name="fake_obstacle_manager"
         type="fake_obstacle_manager.py"
