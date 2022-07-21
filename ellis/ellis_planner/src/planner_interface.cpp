@@ -33,26 +33,25 @@ bool PlannerInterface::InitializePlanner(ros::NodeHandle* nh) {
   std::vector<Environment::Action> actions;
   XmlRpc::XmlRpcValue action_info;
   if (nh->getParam("ellis_planner/actions", action_info)) {
-    for (int i = 0; i < action_info.size(); ++i) {
-      const auto& info = action_info[i];
+    unsigned int num_actions = action_info.size();
+    for (unsigned int i = 0; i < num_actions; ++i) {
+      std::string action_prefix = "ellis_planner/actions/a" + std::to_string(i) + "/";
 
       Environment::Action action;
 
-      if (!info.hasMember("name")) {
+      if (!nh->getParam(action_prefix + "name", action.name_)) {
         NODELET_WARN_STREAM("Action " << i << " has no name!");
         continue;
       }
-      action.name_ = static_cast<std::string>(info["name"]);
 
-      if (info.hasMember("change_in_x")) action.change_in_x_ = static_cast<double>(info["change_in_x"]);
-      if (info.hasMember("change_in_y")) action.change_in_y_ = static_cast<double>(info["change_in_y"]);
-      if (info.hasMember("change_in_yaw")) action.change_in_yaw_ = static_cast<double>(info["change_in_yaw"]);
+      action.change_in_x_ = nh->param<double>(action_prefix + "change_in_x", 0.0);
+      action.change_in_y_ = nh->param<double>(action_prefix + "change_in_y", 0.0);
+      action.change_in_yaw_ = nh->param<double>(action_prefix + "change_in_yaw", 0.0);
 
-      if (!info.hasMember("cost")) {
+      if (!nh->getParam(action_prefix + "cost", action.cost_)) {
         NODELET_WARN_STREAM("Action " << i << " has no cost!");
         continue;
       }
-      action.cost_ = static_cast<double>(info["cost"]);
 
       actions.push_back(action);
     }
@@ -462,10 +461,8 @@ void PlannerInterface::PublishExecutionErrorNeighborhoodMarkers() {
     action_msg.ns = "/mob/ellis_planner/error_nbhds/action";
     action_msg.id = i;
     action_msg.type = visualization_msgs::Marker::ARROW;
-    action_msg.pose.position.x =
-      nbhd.x_ + 0.5 * env_.GetExecutionErrorNeighborhoodParameters().state_radius_pos_ * std::cos(nbhd.yaw_);
-    action_msg.pose.position.y =
-      nbhd.y_ + 0.5 * env_.GetExecutionErrorNeighborhoodParameters().state_radius_pos_ * std::sin(nbhd.yaw_);
+    action_msg.pose.position.x = nbhd.x_;
+    action_msg.pose.position.y = nbhd.y_;
     action_msg.pose.position.z = -0.674614;  // TODO(eratner) Fix this
     tf2::Quaternion orien;
     if (std::abs(nbhd.action_dir_yaw_) > 1e-6) {
@@ -482,10 +479,10 @@ void PlannerInterface::PublishExecutionErrorNeighborhoodMarkers() {
     action_msg.pose.orientation.z = orien.z();
     action_msg.pose.orientation.w = orien.w();
     action_msg.color.r = 0;
-    action_msg.color.g = 0.5;
-    action_msg.color.b = 0.5;
+    action_msg.color.g = 0.4;
+    action_msg.color.b = 0.6;
     action_msg.color.a = 0.5;
-    action_msg.scale.x = env_.GetExecutionErrorNeighborhoodParameters().state_radius_pos_;
+    action_msg.scale.x = 1.25 * env_.GetExecutionErrorNeighborhoodParameters().state_radius_pos_;
     action_msg.scale.y = 0.05;
     action_msg.scale.z = 0.05;
     vis_pub_.publish(action_msg);
