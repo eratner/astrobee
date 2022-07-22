@@ -7,7 +7,7 @@
   <node pkg="rosbag"
         type="record"
         name="rosbag_recorder"
-        args="record -o /tmp/ellis-experiment /tf /tf_static /mob/ellis_planner/vis /mob/choreographer/segment /mob/motion/feedback" />
+        args="record -o /data/ep/ /tf /tf_static /mob/ellis_planner/vis /mob/choreographer/segment /mob/motion/feedback" />
 
   <!-- Run the experiment manager. -->
   <node name="experiment_manager" type="exp" pkg="ellis_planner" output="screen" />
