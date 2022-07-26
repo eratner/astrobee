@@ -3,6 +3,7 @@
 #define ELLIS_PLANNER_ENVIRONMENT_H_
 
 #include <ellis_planner/state.h>
+#include <ellis_planner/rectangle_collision_object.h>
 #include <boost/functional/hash.hpp>
 #include <vector>
 #include <unordered_map>
@@ -75,6 +76,8 @@ class Environment {
 
   const std::vector<Action>& GetActions() const;
 
+  RectangleCollisionObject::Ptr GetRobotCollisionObject();
+
   // Returns a tuple of the outcome state and the cost of taking the action.
   std::tuple<State::Ptr, double> GetOutcome(const State::Ptr state, const Action& action);
 
@@ -129,6 +132,8 @@ class Environment {
   std::unordered_map<DiscreteState, unsigned int, DiscreteState::HashFunction> discrete_state_to_id_;
 
   std::vector<Action> actions_;
+
+  RectangleCollisionObject::Ptr robot_collision_object_;
 
   // Execution errors.
   ExecutionErrorNeighborhoodParameters exec_error_params_;

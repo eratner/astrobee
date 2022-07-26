@@ -47,6 +47,12 @@ class PlannerInterface : public planner::PlannerImplementation {
 
   void PublishExecutionErrorNeighborhoodMarkers();
 
+  bool ClearExecutionErrors(std_srvs::Trigger::Request& req, std_srvs::Trigger::Response& res);
+
+  void PublishPathMarkers(const std::vector<ellis_planner::State::Ptr>& path);
+
+  void DeletePathMarkers();
+
   ff_util::ConfigServer cfg_;
 
   tf2_ros::Buffer tf_buffer_;
@@ -55,6 +61,7 @@ class PlannerInterface : public planner::PlannerImplementation {
   ros::Publisher vis_pub_;
 
   ros::ServiceServer report_execution_error_srv_;
+  ros::ServiceServer clear_execution_errors_srv_;
 
   double nominal_lin_vel_;
   double nominal_ang_vel_;

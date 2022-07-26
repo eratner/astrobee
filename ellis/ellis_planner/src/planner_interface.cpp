@@ -27,6 +27,9 @@ bool PlannerInterface::InitializePlanner(ros::NodeHandle* nh) {
   report_execution_error_srv_ =
     nh->advertiseService("/mob/ellis_planner/report_execution_error", &PlannerInterface::ReportExecutionError, this);
 
+  clear_execution_errors_srv_ =
+    nh->advertiseService("/mob/ellis_planner/clear_execution_errors", &PlannerInterface::ClearExecutionErrors, this);
+
   nominal_lin_vel_ = cfg_.Get<double>("nominal_lin_vel");
   nominal_ang_vel_ = cfg_.Get<double>("nominal_ang_vel");
 
@@ -70,6 +73,12 @@ bool PlannerInterface::InitializePlanner(ros::NodeHandle* nh) {
 
 bool PlannerInterface::ReconfigureCallback(dynamic_reconfigure::Config& config) {
   if (!cfg_.Reconfigure(config)) return false;
+
+  // Update the execution error neighborhood parameters.
+  env_.SetExecutionErrorNeighborhoodParameters(Environment::ExecutionErrorNeighborhoodParameters(
+    cfg_.Get<double>("exec_error_state_radius_pos"), cfg_.Get<double>("exec_error_state_radius_yaw"),
+    cfg_.Get<double>("exec_error_action_radius"), cfg_.Get<double>("exec_error_penalty")));
+  NODELET_ERROR_STREAM("Params: " << env_.GetExecutionErrorNeighborhoodParameters());
 
   return true;
 }
@@ -146,6 +155,9 @@ void PlannerInterface::PlanCallback(const ff_msgs::PlanGoal& goal) {
     result.response = ff_msgs::PlanResult::BAD_ARGUMENTS;
     return PlanResult(result);
   }
+
+  DeletePathMarkers();
+  PublishPathMarkers(path);
 
   NODELET_ERROR("-----");
   NODELET_ERROR_STREAM("state: " << *start_state);
@@ -486,6 +498,37 @@ void PlannerInterface::PublishExecutionErrorNeighborhoodMarkers() {
     action_msg.scale.y = 0.05;
     action_msg.scale.z = 0.05;
     vis_pub_.publish(action_msg);
+  }
+}
+
+bool PlannerInterface::ClearExecutionErrors(std_srvs::Trigger::Request& req, std_srvs::Trigger::Response& res) {
+  env_.ClearExecutionErrorNeighborhoods();
+  return true;
+}
+
+void PlannerInterface::PublishPathMarkers(const std::vector<ellis_planner::State::Ptr>& path) {
+  for (int i = 0; i < path.size(); ++i) {
+    auto state = path[i];
+    auto robot = env_.GetRobotCollisionObject();
+    robot->SetX(state->GetX());
+    robot->SetY(state->GetY());
+    robot->SetYaw(state->GetYaw());
+    auto msg = robot->GetMarker();
+    msg.header.frame_id = std::string(FRAME_NAME_WORLD);
+    msg.ns = "/mob/ellis_planner/path";
+    msg.id = i;
+    vis_pub_.publish(msg);
+  }
+}
+
+void PlannerInterface::DeletePathMarkers() {
+  for (int i = 0; i < 200; ++i) {  // TODO(eratner) This is hacky...
+    visualization_msgs::Marker msg;
+    msg.header.frame_id = std::string(FRAME_NAME_WORLD);
+    msg.ns = "/mob/ellis_planner/path";
+    msg.id = i;
+    msg.action = visualization_msgs::Marker::DELETE;
+    vis_pub_.publish(msg);
   }
 }
 

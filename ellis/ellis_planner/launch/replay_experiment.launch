@@ -17,5 +17,5 @@
 
   <node name="rviz_node" pkg="rviz" type="rviz" 
         respawn="true"  output="log"
-        args="-d $(find astrobee)/resources/rviz/granite.rviz"/>
+        args="-d $(find ellis_planner)/config/granite_replay.rviz"/>
 </launch>

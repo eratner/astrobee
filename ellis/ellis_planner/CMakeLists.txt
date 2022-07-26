@@ -45,6 +45,8 @@ add_library(ellis_planner
   src/state.cpp
   src/environment.cpp
   src/search.cpp
+  src/collision_object.cpp
+  src/rectangle_collision_object.cpp
 )
 add_dependencies(ellis_planner ${catkin_EXPORTED_TARGETS})
 target_link_libraries(ellis_planner ${catkin_LIBRARIES} ${PCL_LIBRARIES})

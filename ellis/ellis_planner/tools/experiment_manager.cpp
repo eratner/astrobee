@@ -73,12 +73,24 @@ class ExperimentManager {
     }
 
     report_execution_error_client_ = nh_.serviceClient<std_srvs::Trigger>("/mob/ellis_planner/report_execution_error");
+    clear_execution_errors_client_ = nh_.serviceClient<std_srvs::Trigger>("/mob/ellis_planner/clear_execution_errors");
 
     while (ros::ok()) {
-      if (report_execution_error_client_.waitForExistence(ros::Duration(0.25)))
+      if (report_execution_error_client_.waitForExistence(ros::Duration(0.25))) {
         break;
-      else
+      } else {
+        ROS_WARN("[ExperimentManager] Waiting for report exec error server...");
         ros::spinOnce();
+      }
+    }
+
+    while (ros::ok()) {
+      if (clear_execution_errors_client_.waitForExistence(ros::Duration(0.25))) {
+        break;
+      } else {
+        ROS_WARN("[ExperimentManager] Waiting for clear exec errors server...");
+        ros::spinOnce();
+      }
     }
 
     return true;
@@ -86,6 +98,13 @@ class ExperimentManager {
 
   void Run() {
     int waypoint_index = 0;
+
+    // Clear any existing execution errors cached from previous experiments.
+    std_srvs::Trigger srv;
+    if (clear_execution_errors_client_.call(srv))
+      ROS_INFO("[ExperimentManager] Clearing old execution errors...");
+    else
+      ROS_WARN("[ExperimentManager] Failed to call service to clear old execution errors!");
 
     ros::Rate rate(5.0);
     while (ros::ok()) {
@@ -242,6 +261,8 @@ class ExperimentManager {
             state_ = READY;
             break;
           }
+            // TODO(eratner) What is the difference between POSITION_ENDPOINT and POSITION?
+          case ff_msgs::MotionResult::TOLERANCE_VIOLATION_POSITION_ENDPOINT:
           case ff_msgs::MotionResult::TOLERANCE_VIOLATION_ATTITUDE:
           case ff_msgs::MotionResult::TOLERANCE_VIOLATION_POSITION: {
             // A discrepancy occurred!
@@ -299,6 +320,7 @@ class ExperimentManager {
   std::vector<std::array<double, 3>> waypoint_;
   std::vector<std::string> planner_type_;
   ros::ServiceClient report_execution_error_client_;
+  ros::ServiceClient clear_execution_errors_client_;
   boost::circular_buffer<ff_msgs::ControlFeedback> control_feedback_history_;
 };
 

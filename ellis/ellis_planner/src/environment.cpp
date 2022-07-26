@@ -73,9 +73,16 @@ Environment::Environment()
       goal_y_(0.0),
       goal_yaw_(0.0),
       goal_pos_tol_(1e-1),
-      goal_ang_tol_(1e-1) {}
+      goal_ang_tol_(1e-1) {
+  // Robot is about 0.32 m x 0.32 m (TODO(eratner) shouldn't hard code this).
+  robot_collision_object_ = new RectangleCollisionObject("robot", 0.0, 0.0, 0.0, 0.4, 0.4);
+}
 
-Environment::~Environment() { Clear(); }
+Environment::~Environment() {
+  Clear();
+
+  if (robot_collision_object_) delete robot_collision_object_;
+}
 
 void Environment::Clear() {
   for (auto state : states_) {
@@ -140,6 +147,8 @@ void Environment::SetBounds(double min_x, double max_x, double min_y, double max
 void Environment::SetActions(const std::vector<Action>& actions) { actions_ = actions; }
 
 const std::vector<Environment::Action>& Environment::GetActions() const { return actions_; }
+
+RectangleCollisionObject::Ptr Environment::GetRobotCollisionObject() { return robot_collision_object_; }
 
 std::tuple<State::Ptr, double> Environment::GetOutcome(const State::Ptr state, const Action& action) {
   double x = state->GetX() + action.change_in_x_;
