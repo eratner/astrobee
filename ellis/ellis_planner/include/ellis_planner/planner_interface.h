@@ -10,6 +10,7 @@
 #include <ellis_planner/polynomial_trajectory.h>
 #include <ellis_planner/environment.h>
 #include <ellis_planner/search.h>
+#include <ellis_planner/ReportExecutionError.h>
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2/utils.h>
 #include <std_srvs/Trigger.h>
@@ -43,7 +44,9 @@ class PlannerInterface : public planner::PlannerImplementation {
   void PublishPoseMarker(double x, double y, double z, double yaw, const std::string& name = "pose",
                          bool show_name = true, double r = 1.0, double g = 0.0, double b = 0.0, double a = 0.75);
 
-  bool ReportExecutionError(std_srvs::Trigger::Request& req, std_srvs::Trigger::Response& res);
+  // bool ReportExecutionError(std_srvs::Trigger::Request& req, std_srvs::Trigger::Response& res);
+
+  bool ReportExecutionError(ReportExecutionError::Request& req, ReportExecutionError::Response& res);
 
   void PublishExecutionErrorNeighborhoodMarkers();
 

@@ -10,6 +10,7 @@
 #include <ros/package.h>
 #include <std_srvs/Trigger.h>
 #include <boost/circular_buffer.hpp>
+#include <ellis_planner/ReportExecutionError.h>
 #include <array>
 #include <string>
 #include <vector>
@@ -72,7 +73,10 @@ class ExperimentManager {
       ROS_WARN("[ExperimentManager] No waypoints specified");
     }
 
-    report_execution_error_client_ = nh_.serviceClient<std_srvs::Trigger>("/mob/ellis_planner/report_execution_error");
+    // report_execution_error_client_ =
+    // nh_.serviceClient<std_srvs::Trigger>("/mob/ellis_planner/report_execution_error");
+    report_execution_error_client_ =
+      nh_.serviceClient<ellis_planner::ReportExecutionError>("/mob/ellis_planner/report_execution_error");
     clear_execution_errors_client_ = nh_.serviceClient<std_srvs::Trigger>("/mob/ellis_planner/clear_execution_errors");
 
     while (ros::ok()) {
@@ -92,6 +96,9 @@ class ExperimentManager {
         ros::spinOnce();
       }
     }
+
+    stop_robot_on_execution_error_ = p_nh_.param<bool>("stop_robot_on_execution_error", true);
+    ROS_INFO_STREAM("Stopping robot on execution failure? " << (stop_robot_on_execution_error_ ? "YES" : "NO"));
 
     return true;
   }
@@ -235,6 +242,62 @@ class ExperimentManager {
     return true;
   }
 
+  bool ReportExecutionError() {
+    int index = -1;
+    for (int i = control_feedback_history_.size() - 1; i >= 0; --i) {
+      const auto& fb = control_feedback_history_[i];
+      if (fb.error_position < 0.05 && fb.error_attitude < 0.25) {
+        index = i;
+        break;
+      }
+    }
+
+    if (index < 0) {
+      ROS_ERROR("[ExperimentManager] Failed to find root of error!");
+      return false;
+    }
+
+    ROS_WARN_STREAM("[ExperimentManager] Found root of error at index " << index << " (history size is "
+                                                                        << control_feedback_history_.size() << ")");
+    const auto& fb = control_feedback_history_[index];
+    ROS_WARN_STREAM("[ExperimentManager]   pos err: "
+                    << fb.error_position << ", att err: " << fb.error_attitude << ", x: " << fb.setpoint.pose.position.x
+                    << ", y: " << fb.setpoint.pose.position.y << ", yaw: " << tf2::getYaw(fb.setpoint.pose.orientation)
+                    << ", vel x: " << fb.setpoint.twist.linear.x << ", vel y: " << fb.setpoint.twist.linear.y
+                    << ", vel yaw: " << fb.setpoint.twist.angular.z);
+
+    ellis_planner::ReportExecutionError report;
+    report.request.x = fb.setpoint.pose.position.x;
+    report.request.y = fb.setpoint.pose.position.y;
+    report.request.yaw = tf2::getYaw(fb.setpoint.pose.orientation);
+
+    // Find the action that the robot was executing.
+    double n = std::sqrt(std::pow(fb.setpoint.twist.linear.x, 2) + std::pow(fb.setpoint.twist.linear.y, 2));
+    if (std::abs(n) < 1e-6) {
+      report.request.action_dir_x = 0.0;
+      report.request.action_dir_y = 0.0;
+    } else {
+      report.request.action_dir_x = fb.setpoint.twist.linear.x / n;
+      report.request.action_dir_y = fb.setpoint.twist.linear.y / n;
+    }
+
+    report.request.action_dir_yaw = 0.0;
+    if (std::abs(fb.setpoint.twist.angular.z) > 1e-6) {
+      if (fb.setpoint.twist.angular.z > 0.0)
+        report.request.action_dir_yaw = 1.0;
+      else
+        report.request.action_dir_yaw = -1.0;
+    }
+
+    // Report the execution error.
+    if (!report_execution_error_client_.call(report)) {
+      ROS_ERROR("[ExperimentManager] Failed to call service to report an execution error");
+      return false;
+    }
+
+    return true;
+  }
+
   void ResultCallback(ff_util::FreeFlyerActionState::Enum result_code, ff_msgs::MotionResultConstPtr const& result) {
     switch (result_code) {
       case ff_util::FreeFlyerActionState::Enum::TIMEOUT_ON_CONNECT:
@@ -265,28 +328,41 @@ class ExperimentManager {
           case ff_msgs::MotionResult::TOLERANCE_VIOLATION_POSITION_ENDPOINT:
           case ff_msgs::MotionResult::TOLERANCE_VIOLATION_ATTITUDE:
           case ff_msgs::MotionResult::TOLERANCE_VIOLATION_POSITION: {
-            // A discrepancy occurred!
+            // A execution failure occurred!
             ROS_WARN("[ExperimentManager] Something unexpected occurred!");
 
-            for (const auto& f : control_feedback_history_) {
-              ROS_WARN_STREAM("  pos err: " << f.error_position << ", att err: " << f.error_attitude << ", x: "
-                                            << f.setpoint.pose.position.x << ", y: " << f.setpoint.pose.position.y
-                                            << ", yaw: " << tf2::getYaw(f.setpoint.pose.orientation) << ", vel x: "
-                                            << f.setpoint.twist.linear.x << ", vel y: " << f.setpoint.twist.linear.y
-                                            << ", vel yaw: " << f.setpoint.twist.angular.z);
+            // Stop the robot.
+            if (stop_robot_on_execution_error_) {
+              ROS_WARN("[ExperimentManager] Stopping robot...");
+              if (!Stop()) ROS_ERROR("[ExperimentManager] Failed to stop the robot!");
             }
 
-            // Report the execution error.
-            std_srvs::Trigger srv;
-            if (report_execution_error_client_.call(srv)) {
-              ROS_INFO("[ExperimentManager] Reporting execution error...");
+            if (ReportExecutionError()) {
+              ROS_INFO("[ExperimentManager] Reported execution error...");
               state_ = REPLAN_NEEDED;
             } else {
-              ROS_ERROR("[ExperimentManager] Failed to call service to report an execution error");
+              ROS_ERROR("[ExperimentManager] Failed to report an execution error!");
               state_ = ERROR;
             }
 
-            // TODO(eratner) Do something!
+            // for (const auto& f : control_feedback_history_) {
+            //   ROS_WARN_STREAM("  pos err: " << f.error_position << ", att err: " << f.error_attitude << ", x: "
+            //                                 << f.setpoint.pose.position.x << ", y: " << f.setpoint.pose.position.y
+            //                                 << ", yaw: " << tf2::getYaw(f.setpoint.pose.orientation) << ", vel x: "
+            //                                 << f.setpoint.twist.linear.x << ", vel y: " << f.setpoint.twist.linear.y
+            //                                 << ", vel yaw: " << f.setpoint.twist.angular.z);
+            // }
+
+            // // Report the execution error.
+            // std_srvs::Trigger srv;
+            // if (report_execution_error_client_.call(srv)) {
+            //   ROS_INFO("[ExperimentManager] Reporting execution error...");
+            //   state_ = REPLAN_NEEDED;
+            // } else {
+            //   ROS_ERROR("[ExperimentManager] Failed to call service to report an execution error");
+            //   state_ = ERROR;
+            // }
+
             break;
           }
           default:
@@ -322,6 +398,7 @@ class ExperimentManager {
   ros::ServiceClient report_execution_error_client_;
   ros::ServiceClient clear_execution_errors_client_;
   boost::circular_buffer<ff_msgs::ControlFeedback> control_feedback_history_;
+  bool stop_robot_on_execution_error_;
 };
 
 int main(int argc, char* argv[]) {

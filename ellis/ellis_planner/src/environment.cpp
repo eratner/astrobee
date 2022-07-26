@@ -34,6 +34,14 @@ Environment::ExecutionErrorNeighborhood::ExecutionErrorNeighborhood(double x, do
       action_dir_y_(action_dir_y),
       action_dir_yaw_(action_dir_yaw) {}
 
+Environment::ExecutionErrorNeighborhood::ExecutionErrorNeighborhood(const ReportExecutionError::Request& req)
+    : x_(req.x),
+      y_(req.y),
+      yaw_(req.yaw),
+      action_dir_x_(req.action_dir_x),
+      action_dir_y_(req.action_dir_y),
+      action_dir_yaw_(req.action_dir_yaw) {}
+
 bool Environment::ExecutionErrorNeighborhood::Contains(const State::Ptr state, const Action& action,
                                                        const ExecutionErrorNeighborhoodParameters& params) const {
   // Check distance in state position.

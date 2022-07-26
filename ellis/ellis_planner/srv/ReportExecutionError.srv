@@ -1,0 +1,14 @@
+# Copyright 2022 Ellis Ratner (eratner@berkeley.edu)
+
+# Pose of the robot where the execution error occured.
+float64 x
+float64 y
+float64 yaw
+
+# Action the robot was taking when execution error occured.
+float64 action_dir_x
+float64 action_dir_y
+float64 action_dir_yaw
+
+---
+bool success

@@ -24,6 +24,8 @@ bool PlannerInterface::InitializePlanner(ros::NodeHandle* nh) {
   std::string vis_topic = "/mob/ellis_planner/vis";
   vis_pub_ = nh->advertise<visualization_msgs::Marker>(vis_topic, 50);
 
+  // report_execution_error_srv_ =
+  //   nh->advertiseService("/mob/ellis_planner/report_execution_error", &PlannerInterface::ReportExecutionError, this);
   report_execution_error_srv_ =
     nh->advertiseService("/mob/ellis_planner/report_execution_error", &PlannerInterface::ReportExecutionError, this);
 
@@ -377,64 +379,75 @@ void PlannerInterface::PublishPoseMarker(double x, double y, double z, double ya
   }
 }
 
-bool PlannerInterface::ReportExecutionError(std_srvs::Trigger::Request& req, std_srvs::Trigger::Response& res) {
-  // Get the robot's current pose.
-  double x = 0.0, y = 0.0, z = 0.0, yaw = 0.0;
-  if (!GetPose(x, y, z, yaw)) {
-    NODELET_ERROR("Failed to get pose of robot!");
-    res.success = false;
-    return false;
-  }
+// bool PlannerInterface::ReportExecutionError(std_srvs::Trigger::Request& req, std_srvs::Trigger::Response& res) {
+//   // Get the robot's current pose.
+//   double x = 0.0, y = 0.0, z = 0.0, yaw = 0.0;
+//   if (!GetPose(x, y, z, yaw)) {
+//     NODELET_ERROR("Failed to get pose of robot!");
+//     res.success = false;
+//     return false;
+//   }
 
-  // Find the closest waypoint to the robot's current pose.
-  int closest_index = -1;
-  double closest_dist = 1e9;
-  double closest_angle = 1e9;
-  for (int i = 0; i < last_trajectory_.size(); ++i) {
-    const auto& waypoint = last_trajectory_[i];
-    double dist = std::sqrt(std::pow(waypoint.pose.position.x - x, 2) + std::pow(waypoint.pose.position.y - y, 2));
-    double waypoint_yaw = tf2::getYaw(waypoint.pose.orientation);
-    double angle = std::abs(AngularDist(tf2::getYaw(waypoint.pose.orientation), yaw));
-    if (dist < closest_dist && (std::abs(angle - closest_angle) < 1e-3 || angle < closest_angle)) {
-      closest_dist = dist;
-      closest_angle = angle;
-      closest_index = i;
-    }
-  }
+//   // Find the closest waypoint to the robot's current pose.
+//   int closest_index = -1;
+//   double closest_dist = 1e9;
+//   double closest_angle = 1e9;
+//   for (int i = 0; i < last_trajectory_.size(); ++i) {
+//     const auto& waypoint = last_trajectory_[i];
+//     double dist = std::sqrt(std::pow(waypoint.pose.position.x - x, 2) + std::pow(waypoint.pose.position.y - y, 2));
+//     double waypoint_yaw = tf2::getYaw(waypoint.pose.orientation);
+//     double angle = std::abs(AngularDist(tf2::getYaw(waypoint.pose.orientation), yaw));
+//     if (dist < closest_dist && (std::abs(angle - closest_angle) < 1e-3 || angle < closest_angle)) {
+//       closest_dist = dist;
+//       closest_angle = angle;
+//       closest_index = i;
+//     }
+//   }
 
-  if (closest_index < 0) {
-    NODELET_ERROR("Failed to find closest waypoint in last trajectory!");
-    return false;
-  }
+//   if (closest_index < 0) {
+//     NODELET_ERROR("Failed to find closest waypoint in last trajectory!");
+//     return false;
+//   }
 
-  auto waypoint = last_trajectory_[closest_index];
-  double n = std::sqrt(std::pow(waypoint.twist.linear.x, 2) + std::pow(waypoint.twist.linear.y, 2));
-  if (std::abs(n) < 1e-6) {
-    NODELET_WARN_STREAM("Waypoint at index " << closest_index << " has zero velocity, so using waypoint at index "
-                                             << closest_index - 1 << " or index " << closest_index + 1);
-    waypoint = last_trajectory_[(closest_index > 0 ? closest_index - 1 : closest_index + 1)];
-    n = std::sqrt(std::pow(waypoint.twist.linear.x, 2) + std::pow(waypoint.twist.linear.y, 2));
-    if (std::abs(n) < 1e-6) {
-      NODELET_ERROR_STREAM("Waypoints at indices " << closest_index << " and "
-                                                   << (closest_index > 0 ? closest_index - 1 : closest_index + 1)
-                                                   << " both have velocity of zero!");
-      return false;
-    }
-  }
+//   auto waypoint = last_trajectory_[closest_index];
+//   double n = std::sqrt(std::pow(waypoint.twist.linear.x, 2) + std::pow(waypoint.twist.linear.y, 2));
+//   if (std::abs(n) < 1e-6) {
+//     NODELET_WARN_STREAM("Waypoint at index " << closest_index << " has zero velocity, so using waypoint at index "
+//                                              << closest_index - 1 << " or index " << closest_index + 1);
+//     waypoint = last_trajectory_[(closest_index > 0 ? closest_index - 1 : closest_index + 1)];
+//     n = std::sqrt(std::pow(waypoint.twist.linear.x, 2) + std::pow(waypoint.twist.linear.y, 2));
+//     if (std::abs(n) < 1e-6) {
+//       NODELET_ERROR_STREAM("Waypoints at indices " << closest_index << " and "
+//                                                    << (closest_index > 0 ? closest_index - 1 : closest_index + 1)
+//                                                    << " both have velocity of zero!");
+//       return false;
+//     }
+//   }
 
-  double yaw_dir = 0.0;
-  if (std::abs(waypoint.twist.linear.z) > 1e-6) {
-    if (waypoint.twist.linear.z > 0.0)
-      yaw_dir = 1.0;
-    else
-      yaw_dir = -1.0;
-  }
-  env_.AddExecutionErrorNeighborhood(Environment::ExecutionErrorNeighborhood(x, y, yaw, waypoint.twist.linear.x / n,
-                                                                             waypoint.twist.linear.y / n, yaw_dir));
-  NODELET_ERROR_STREAM("Exec error at (" << x << ", " << y << ", " << yaw << "), action lin vel: ("
-                                         << waypoint.twist.linear.x << ", " << waypoint.twist.linear.y
-                                         << "), ang vel: " << waypoint.twist.angular.z << ", n: " << n);
+//   double yaw_dir = 0.0;
+//   if (std::abs(waypoint.twist.angular.z) > 1e-6) {
+//     if (waypoint.twist.angular.z > 0.0)
+//       yaw_dir = 1.0;
+//     else
+//       yaw_dir = -1.0;
+//   }
+//   env_.AddExecutionErrorNeighborhood(Environment::ExecutionErrorNeighborhood(x, y, yaw, waypoint.twist.linear.x / n,
+//                                                                              waypoint.twist.linear.y / n, yaw_dir));
+//   NODELET_ERROR_STREAM("Exec error at (" << x << ", " << y << ", " << yaw << "), action lin vel: ("
+//                                          << waypoint.twist.linear.x << ", " << waypoint.twist.linear.y
+//                                          << "), ang vel: " << waypoint.twist.angular.z << ", n: " << n);
 
+//   PublishExecutionErrorNeighborhoodMarkers();
+
+//   res.success = true;
+//   return true;
+// }
+
+bool PlannerInterface::ReportExecutionError(ReportExecutionError::Request& req, ReportExecutionError::Response& res) {
+  NODELET_ERROR_STREAM("Exec error at (" << req.x << ", " << req.y << ", " << req.yaw << ") with action ("
+                                         << req.action_dir_x << ", " << req.action_dir_y << ", " << req.action_dir_yaw
+                                         << ")");
+  env_.AddExecutionErrorNeighborhood(Environment::ExecutionErrorNeighborhood(req));
   PublishExecutionErrorNeighborhoodMarkers();
 
   res.success = true;

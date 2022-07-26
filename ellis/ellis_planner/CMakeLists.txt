@@ -5,6 +5,7 @@ add_compile_options(-std=c++14)
 
 find_package(catkin2 REQUIRED COMPONENTS
   roscpp
+  message_generation
   ff_util
   ff_msgs
   tf2_ros
@@ -17,19 +18,28 @@ find_package(catkin2 REQUIRED COMPONENTS
 find_package(PCL REQUIRED COMPONENTS common)
 find_package(Eigen3 REQUIRED)
 
+file(GLOB SRV_FILES srv/*.srv)
+foreach(SRC ${SRV_FILES})
+  get_filename_component(NAME ${SRC} NAME)
+  list(APPEND SRV_FILE_NAMES ${NAME})
+endforeach()
+add_service_files(FILES ${SRV_FILE_NAMES})
+
+generate_messages()
+
 catkin_package(
   INCLUDE_DIRS include
   LIBRARIES ellis_planner
   CATKIN_DEPENDS
-    roscpp
-    ff_util
-    ff_msgs
-    tf2_ros
-    tf2
-    nodelet
-    pluginlib
-    choreographer
-    visualization_msgs
+  roscpp
+  ff_util
+  ff_msgs
+  tf2_ros
+  tf2
+  nodelet
+  pluginlib
+  choreographer
+  visualization_msgs
 )
 
 include_directories(

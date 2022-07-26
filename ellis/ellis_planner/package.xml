@@ -16,6 +16,7 @@
   </maintainer>
   <buildtool_depend>catkin</buildtool_depend>
   <build_depend>roscpp</build_depend>
+  <build_depend>message_generation</build_depend>
   <build_depend>ff_util</build_depend>
   <build_depend>ff_msgs</build_depend>
   <build_depend>tf2_ros</build_depend>

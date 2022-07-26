@@ -4,6 +4,7 @@
 
 #include <ellis_planner/state.h>
 #include <ellis_planner/rectangle_collision_object.h>
+#include <ellis_planner/ReportExecutionError.h>
 #include <boost/functional/hash.hpp>
 #include <vector>
 #include <unordered_map>
@@ -40,6 +41,8 @@ class Environment {
   struct ExecutionErrorNeighborhood {
     explicit ExecutionErrorNeighborhood(double x = 0.0, double y = 0.0, double yaw = 0.0, double action_dir_x = 0.0,
                                         double action_dir_y = 0.0, double action_dir_yaw = 0.0);
+
+    explicit ExecutionErrorNeighborhood(const ReportExecutionError::Request& req);
 
     bool Contains(const State::Ptr state, const Action& action,
                   const ExecutionErrorNeighborhoodParameters& params) const;
