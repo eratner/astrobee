@@ -69,6 +69,7 @@ bool PlannerInterface::InitializePlanner(ros::NodeHandle* nh) {
     cfg_.Get<double>("exec_error_state_radius_pos"), cfg_.Get<double>("exec_error_state_radius_yaw"),
     cfg_.Get<double>("exec_error_action_radius"), cfg_.Get<double>("exec_error_penalty")));
   NODELET_ERROR_STREAM("Params: " << env_.GetExecutionErrorNeighborhoodParameters());
+  env_.SetUseWeightedPenalty(cfg_.Get<bool>("use_weighted_penalty"));
 
   return true;
 }
@@ -81,6 +82,7 @@ bool PlannerInterface::ReconfigureCallback(dynamic_reconfigure::Config& config) 
     cfg_.Get<double>("exec_error_state_radius_pos"), cfg_.Get<double>("exec_error_state_radius_yaw"),
     cfg_.Get<double>("exec_error_action_radius"), cfg_.Get<double>("exec_error_penalty")));
   NODELET_ERROR_STREAM("Params: " << env_.GetExecutionErrorNeighborhoodParameters());
+  env_.SetUseWeightedPenalty(cfg_.Get<bool>("use_weighted_penalty"));
 
   return true;
 }
@@ -103,8 +105,12 @@ void PlannerInterface::PlanCallback(const ff_msgs::PlanGoal& goal) {
     if (zone.type == ff_msgs::Zone::KEEPIN) {
       if (!keepin_zone_found) {
         keepin_zone_found = true;
+
+        // TODO(eratner) Make this a parameter
+        const double margin = 0.3;
+
         // Set bounds on the environment used in planning.
-        env_.SetBounds(zone.min.x, zone.max.x, zone.min.y, zone.max.y);
+        env_.SetBounds(zone.min.x + margin, zone.max.x - margin, zone.min.y + margin, zone.max.y - margin);
       } else {
         NODELET_WARN_STREAM("Already found one KEEPIN zone, so skipping zone \"" << zone.name << "\" with index "
                                                                                  << zone.index);
@@ -158,8 +164,8 @@ void PlannerInterface::PlanCallback(const ff_msgs::PlanGoal& goal) {
     return PlanResult(result);
   }
 
-  DeletePathMarkers();
-  PublishPathMarkers(path);
+  // DeletePathMarkers();
+  // PublishPathMarkers(path);
 
   NODELET_ERROR("-----");
   NODELET_ERROR_STREAM("state: " << *start_state);
@@ -450,6 +456,10 @@ bool PlannerInterface::ReportExecutionError(ReportExecutionError::Request& req, 
   env_.AddExecutionErrorNeighborhood(Environment::ExecutionErrorNeighborhood(req));
   PublishExecutionErrorNeighborhoodMarkers();
 
+  double min_x = 0.0, max_x = 0.0, min_y = 0.0, max_y = 0.0;
+  env_.GetBounds(min_x, max_x, min_y, max_y);
+  PublishWeightedPenalties(min_x, max_x, min_y, max_y);
+
   res.success = true;
   return true;
 }
@@ -543,6 +553,55 @@ void PlannerInterface::DeletePathMarkers() {
     msg.action = visualization_msgs::Marker::DELETE;
     vis_pub_.publish(msg);
   }
+}
+
+void PlannerInterface::PublishWeightedPenalties(double min_x, double max_x, double min_y, double max_y) {
+  visualization_msgs::Marker msg;
+  msg.header.frame_id = std::string(FRAME_NAME_WORLD);
+  msg.ns = "/mob/ellis_planner/weighted_penalty";
+  msg.id = 0;
+  msg.type = visualization_msgs::Marker::SPHERE_LIST;
+  msg.pose.position.x = 0;
+  msg.pose.position.y = 0;
+  msg.pose.position.z = -0.4;
+  msg.pose.orientation.x = 0;
+  msg.pose.orientation.y = 0;
+  msg.pose.orientation.z = 0;
+  msg.pose.orientation.w = 1;
+  msg.color.r = 0;
+  msg.color.g = 1.0;
+  msg.color.b = 1.0;
+  msg.color.a = 0.75;
+
+  const double step_size_x = 0.025;
+  const double step_size_y = 0.025;
+
+  msg.scale.x = 0.5 * step_size_x;
+  msg.scale.y = 0.5 * step_size_y;
+  msg.scale.z = 0.5 * step_size_y;
+
+  double x = min_x;
+  while (x <= max_x) {
+    double y = min_y;
+    while (y <= max_y) {
+      geometry_msgs::Point p;
+      p.x = x;
+      p.y = y;
+      p.z = 0.0;
+
+      for (const auto& action : env_.GetActions()) {
+        // TODO(eratner) loop over yaws
+        p.z += env_.GetWeightedPenalty(x, y, 0.0, action);
+      }
+      p.z *= -0.001;  // Need to "flip" the z-coordinate to visualize correctly.
+      msg.points.push_back(p);
+
+      y += step_size_y;
+    }
+    x += step_size_x;
+  }
+
+  vis_pub_.publish(msg);
 }
 
 }  // namespace ellis_planner

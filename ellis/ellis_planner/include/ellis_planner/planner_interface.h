@@ -56,6 +56,8 @@ class PlannerInterface : public planner::PlannerImplementation {
 
   void DeletePathMarkers();
 
+  void PublishWeightedPenalties(double min_x, double max_x, double min_y, double max_y);
+
   ff_util::ConfigServer cfg_;
 
   tf2_ros::Buffer tf_buffer_;

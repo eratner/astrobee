@@ -4,6 +4,7 @@
 
 #include <ellis_planner/state.h>
 #include <ellis_planner/rectangle_collision_object.h>
+#include <ellis_planner/normal_dist.h>
 #include <ellis_planner/ReportExecutionError.h>
 #include <boost/functional/hash.hpp>
 #include <vector>
@@ -75,6 +76,8 @@ class Environment {
 
   void SetBounds(double min_x, double max_x, double min_y, double max_y);
 
+  void GetBounds(double& min_x, double& max_x, double& min_y, double& max_y);
+
   void SetActions(const std::vector<Action>& actions);
 
   const std::vector<Action>& GetActions() const;
@@ -96,6 +99,16 @@ class Environment {
   void ClearExecutionErrorNeighborhoods();
 
   const std::vector<ExecutionErrorNeighborhood>& GetExecutionErrorNeighborhoods() const;
+
+  double GetPenalty(const State::Ptr state, const Action& action) const;
+
+  double GetWeightedPenalty(const State::Ptr state, const Action& action) const;
+
+  double GetWeightedPenalty(double x, double y, double yaw, const Action& action) const;
+
+  bool UseWeightedPenalty() const;
+
+  void SetUseWeightedPenalty(bool use);
 
   struct DiscreteState {
     explicit DiscreteState(int x_disc = 0, int y_disc = 0, int yaw_disc = 0);
@@ -141,6 +154,8 @@ class Environment {
   // Execution errors.
   ExecutionErrorNeighborhoodParameters exec_error_params_;
   std::vector<ExecutionErrorNeighborhood> exec_error_neighborhoods_;
+
+  bool use_weighted_penalty_;
 };
 
 std::ostream& operator<<(std::ostream& os, const Environment::Action& action);

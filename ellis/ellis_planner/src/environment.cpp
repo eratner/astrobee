@@ -81,7 +81,8 @@ Environment::Environment()
       goal_y_(0.0),
       goal_yaw_(0.0),
       goal_pos_tol_(1e-1),
-      goal_ang_tol_(1e-1) {
+      goal_ang_tol_(1e-1),
+      use_weighted_penalty_(false) {
   // Robot is about 0.32 m x 0.32 m (TODO(eratner) shouldn't hard code this).
   robot_collision_object_ = new RectangleCollisionObject("robot", 0.0, 0.0, 0.0, 0.4, 0.4);
 }
@@ -152,6 +153,13 @@ void Environment::SetBounds(double min_x, double max_x, double min_y, double max
   max_y_ = max_y;
 }
 
+void Environment::GetBounds(double& min_x, double& max_x, double& min_y, double& max_y) {
+  min_x = min_x_;
+  max_x = max_x_;
+  min_y = min_y_;
+  max_y = max_y_;
+}
+
 void Environment::SetActions(const std::vector<Action>& actions) { actions_ = actions; }
 
 const std::vector<Environment::Action>& Environment::GetActions() const { return actions_; }
@@ -176,12 +184,10 @@ std::tuple<State::Ptr, double> Environment::GetOutcome(const State::Ptr state, c
   // TODO(eratner) Collision checking goes here
 
   double cost = action.cost_;
-  for (const auto& nbhd : exec_error_neighborhoods_) {
-    if (nbhd.Contains(state, action, exec_error_params_)) {
-      cost += exec_error_params_.penalty_;
-      break;
-    }
-  }
+  if (UseWeightedPenalty())
+    cost += GetWeightedPenalty(state, action);
+  else
+    cost += GetPenalty(state, action);
 
   auto outcome = GetState(x, y, yaw);
   return std::make_tuple(outcome, cost);
@@ -212,6 +218,68 @@ void Environment::ClearExecutionErrorNeighborhoods() { exec_error_neighborhoods_
 const std::vector<Environment::ExecutionErrorNeighborhood>& Environment::GetExecutionErrorNeighborhoods() const {
   return exec_error_neighborhoods_;
 }
+
+double Environment::GetPenalty(const State::Ptr state, const Action& action) const {
+  double penalty = 0.0;
+  for (const auto& nbhd : exec_error_neighborhoods_) {
+    if (nbhd.Contains(state, action, exec_error_params_)) {
+      penalty = exec_error_params_.penalty_;
+      break;
+    }
+  }
+  return penalty;
+}
+
+double Environment::GetWeightedPenalty(const State::Ptr state, const Action& action) const {
+  return GetWeightedPenalty(state->GetX(), state->GetY(), state->GetYaw(), action);
+}
+
+double Environment::GetWeightedPenalty(double x, double y, double yaw, const Action& action) const {
+  double penalty = 0.0;
+
+  // TODO(eratner) Add action yaw
+  typename MultivariateNormal<3>::Mat cov = MultivariateNormal<3>::Mat::Identity();
+  cov(0, 0) = std::pow(exec_error_params_.state_radius_pos_, 2);
+  cov(1, 1) = std::pow(exec_error_params_.state_radius_yaw_, 2);
+  cov(2, 2) = std::pow(exec_error_params_.action_radius_pos_, 2);
+  typename MultivariateNormal<3>::Vec mean = MultivariateNormal<3>::Vec::Zero();
+
+  for (const auto& n : exec_error_neighborhoods_) {
+    // TODO(eratner) Define a better measure of yaw action distance
+    double action_dir_yaw = 0.0;
+    if (std::abs(action.change_in_yaw_) > 1e-6) {
+      if (action.change_in_yaw_ < 0.0)
+        action_dir_yaw = -1.0;
+      else
+        action_dir_yaw = 1.0;
+    }
+    // TODO(eratner) For now, skip actions that don't match
+    if (std::abs(action_dir_yaw - n.action_dir_yaw_) > 1e-6) continue;
+
+    typename MultivariateNormal<3>::Vec arg;
+    arg(0) = std::sqrt(std::pow(x - n.x_, 2) + std::pow(y - n.y_, 2));
+    arg(1) = AngularDist(yaw, n.yaw_);
+    arg(2) = 0.0;
+    double denom = std::sqrt(std::pow(action.change_in_x_, 2) + std::pow(action.change_in_y_, 2));
+    if (denom > 1e-6) {
+      double action_dir_x = action.change_in_x_ / denom;
+      double action_dir_y = action.change_in_y_ / denom;
+      double angle_between_actions = std::acos(action_dir_x * n.action_dir_x_ + action_dir_y * n.action_dir_y_);
+      arg(2) = angle_between_actions;
+    }
+    double weight =
+      MultivariateNormal<3>::pdf(arg, mean, cov, false) / static_cast<double>(exec_error_neighborhoods_.size());
+    penalty += weight;
+  }
+
+  penalty *= exec_error_params_.penalty_;
+
+  return penalty;
+}
+
+bool Environment::UseWeightedPenalty() const { return use_weighted_penalty_; }
+
+void Environment::SetUseWeightedPenalty(bool use) { use_weighted_penalty_ = use; }
 
 Environment::DiscreteState::DiscreteState(int x_disc, int y_disc, int yaw_disc)
     : x_disc_(x_disc), y_disc_(y_disc), yaw_disc_(yaw_disc) {}
