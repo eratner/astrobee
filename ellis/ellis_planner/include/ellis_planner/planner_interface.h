@@ -11,6 +11,7 @@
 #include <ellis_planner/environment.h>
 #include <ellis_planner/search.h>
 #include <ellis_planner/ReportExecutionError.h>
+#include <ellis_planner/AddObstacle.h>
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2/utils.h>
 #include <std_srvs/Trigger.h>
@@ -44,6 +45,10 @@ class PlannerInterface : public planner::PlannerImplementation {
   void PublishPoseMarker(double x, double y, double z, double yaw, const std::string& name = "pose",
                          bool show_name = true, double r = 1.0, double g = 0.0, double b = 0.0, double a = 0.75);
 
+  bool AddObstacle(AddObstacle::Request&req, AddObstacle::Response&res);
+
+  bool ClearObstacles(std_srvs::Trigger::Request& req, std_srvs::Trigger::Response& res);
+
   // bool ReportExecutionError(std_srvs::Trigger::Request& req, std_srvs::Trigger::Response& res);
 
   bool ReportExecutionError(ReportExecutionError::Request& req, ReportExecutionError::Response& res);
@@ -51,6 +56,8 @@ class PlannerInterface : public planner::PlannerImplementation {
   void PublishExecutionErrorNeighborhoodMarkers();
 
   bool ClearExecutionErrors(std_srvs::Trigger::Request& req, std_srvs::Trigger::Response& res);
+
+  void PublishObstacleMarkers();
 
   void PublishPathMarkers(const std::vector<ellis_planner::State::Ptr>& path);
 
@@ -65,6 +72,8 @@ class PlannerInterface : public planner::PlannerImplementation {
 
   ros::Publisher vis_pub_;
 
+  ros::ServiceServer add_obstacle_srv_;
+  ros::ServiceServer clear_obstacles_srv_;
   ros::ServiceServer report_execution_error_srv_;
   ros::ServiceServer clear_execution_errors_srv_;
 

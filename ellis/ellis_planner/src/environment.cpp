@@ -2,6 +2,7 @@
 #include <ellis_planner/environment.h>
 #include <string>
 #include <vector>
+#include <sstream>
 
 namespace ellis_planner {
 
@@ -91,6 +92,8 @@ Environment::~Environment() {
   Clear();
 
   if (robot_collision_object_) delete robot_collision_object_;
+
+  ClearCollisionObjects();
 }
 
 void Environment::Clear() {
@@ -166,6 +169,18 @@ const std::vector<Environment::Action>& Environment::GetActions() const { return
 
 RectangleCollisionObject::Ptr Environment::GetRobotCollisionObject() { return robot_collision_object_; }
 
+void Environment::AddCollisionObject(CollisionObject::Ptr col) { collision_objects_.push_back(col); }
+
+const std::vector<CollisionObject::Ptr>& Environment::GetCollisionObjects() { return collision_objects_; }
+
+void Environment::ClearCollisionObjects() {
+  for (auto col : collision_objects_) {
+    if (col) delete col;
+  }
+
+  collision_objects_.clear();
+}
+
 std::tuple<State::Ptr, double> Environment::GetOutcome(const State::Ptr state, const Action& action) {
   double x = state->GetX() + action.change_in_x_;
   if (x < min_x_ || max_x_ < x) {
@@ -181,7 +196,16 @@ std::tuple<State::Ptr, double> Environment::GetOutcome(const State::Ptr state, c
 
   double yaw = state->GetYaw() + action.change_in_yaw_;
 
-  // TODO(eratner) Collision checking goes here
+  // TODO(eratner) May require more fine-grained collision checking
+  robot_collision_object_->SetX(x);
+  robot_collision_object_->SetY(y);
+  robot_collision_object_->SetYaw(yaw);
+  for (auto col : collision_objects_) {
+    if (col->InCollision(robot_collision_object_)) {
+      // Outcome state is in collision!
+      return std::make_tuple(nullptr, 1000.0);
+    }
+  }
 
   double cost = action.cost_;
   if (UseWeightedPenalty())
@@ -294,6 +318,68 @@ std::size_t Environment::DiscreteState::HashFunction::operator()(const DiscreteS
   boost::hash_combine(seed, state.y_disc_);
   boost::hash_combine(seed, state.yaw_disc_);
   return seed;
+}
+
+std::string Environment::CollisionTestFunc(double x, double y, double yaw) {
+  std::stringstream s;
+  s << "at state (" << x << ", " << y << ", " << yaw << ")";
+  robot_collision_object_->SetX(x);
+  robot_collision_object_->SetY(y);
+  robot_collision_object_->SetYaw(yaw);
+  bool collision = false;
+  for (auto col : collision_objects_) {
+    if (col->InCollision(robot_collision_object_)) {
+      s << " collision with " << col->GetName() << "!";
+
+      s << " " << robot_collision_object_->GetName() << " vertices: [";
+      auto robot_vs = robot_collision_object_->GetVertices();
+      for (const auto& v : robot_vs) s << "(" << v.x() << ", " << v.y() << "), ";
+      s << "], ";
+
+      auto r = dynamic_cast<RectangleCollisionObject::Ptr>(col);
+      if (r) {
+        auto vs = r->GetVertices();
+        s << " " << r->GetName() << " vertices: [";
+        for (const auto& v : vs) s << "(" << v.x() << ", " << v.y() << "), ";
+        s << "]";
+
+        for (const auto& p : vs) {
+          s << "\n===\n";
+          for (int i = 0; i < 4; ++i) {
+            const auto& first_vertex = robot_vs[i];
+            const auto& second_vertex = robot_vs[(i + 1) % 4];
+            Eigen::Vector2d first_vertex_to_point = p - first_vertex;
+            Eigen::Vector2d edge = second_vertex - first_vertex;
+            s << "\n    edge: (" << edge.x() << ", " << edge.y() << ")";
+            s << "\n    vec2p: (" << first_vertex_to_point.x() << ", " << first_vertex_to_point.y() << ")";
+            double cross_z = edge.x() * first_vertex_to_point.y() - first_vertex_to_point.x() * edge.y();
+            s << "\n        cross: " << cross_z << "\n---\n";
+          }
+          s << "          ROBOT CONTAINS? " << (robot_collision_object_->Contains(p) ? "YES" : "NO") << "\n";
+        }
+        s << "\n==========\n==========\n";
+        for (const auto& p : robot_vs) {
+          s << "\n===\n";
+          for (int i = 0; i < 4; ++i) {
+            const auto& first_vertex = vs[i];
+            const auto& second_vertex = vs[(i + 1) % 4];
+            Eigen::Vector2d first_vertex_to_point = p - first_vertex;
+            Eigen::Vector2d edge = second_vertex - first_vertex;
+            s << "\n    edge: (" << edge.x() << ", " << edge.y() << ")";
+            s << "\n    vec2p: (" << first_vertex_to_point.x() << ", " << first_vertex_to_point.y() << ")";
+            double cross_z = edge.x() * first_vertex_to_point.y() - first_vertex_to_point.x() * edge.y();
+            s << "\n        cross: " << cross_z << "\n---\n";
+          }
+          s << "          OBS CONTAINS? " << (r->Contains(p) ? "YES" : "NO") << "\n";
+        }
+      }
+
+      collision = true;
+      break;
+    }
+  }
+  if (!collision) s << " no collisions";
+  return s.str();
 }
 
 std::ostream& operator<<(std::ostream& os, const Environment::Action& action) {

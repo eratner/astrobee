@@ -21,7 +21,7 @@ bool RectangleCollisionObject::InCollision(const CollisionObject::Ptr other) con
 
     // Check if any vertex of the other rectangle is contained in this rectangle.
     auto other_vertices = other_rect->GetVertices();
-    for (const auto& vertex : vertices) {
+    for (const auto& vertex : other_vertices) {
       if (Contains(vertex)) return true;
     }
 
@@ -63,8 +63,8 @@ std::array<Eigen::Vector2d, 4> RectangleCollisionObject::GetVertices() const {
 
   Eigen::Matrix<double, 2, 2> rot = Eigen::Matrix<double, 2, 2>::Identity();
   rot(0, 0) = std::cos(yaw_);
-  rot(0, 1) = std::sin(yaw_);
-  rot(1, 0) = -std::sin(yaw_);
+  rot(0, 1) = -std::sin(yaw_);
+  rot(1, 0) = std::sin(yaw_);
   rot(1, 1) = std::cos(yaw_);
   Eigen::Vector2d trans(x_, y_);
 

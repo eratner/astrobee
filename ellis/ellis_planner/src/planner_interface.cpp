@@ -24,6 +24,10 @@ bool PlannerInterface::InitializePlanner(ros::NodeHandle* nh) {
   std::string vis_topic = "/mob/ellis_planner/vis";
   vis_pub_ = nh->advertise<visualization_msgs::Marker>(vis_topic, 50);
 
+  add_obstacle_srv_ = nh->advertiseService("/mob/ellis_planner/add_obstacle", &PlannerInterface::AddObstacle, this);
+  clear_obstacles_srv_ =
+    nh->advertiseService("/mob/ellis_planner/clear_obstacles", &PlannerInterface::ClearObstacles, this);
+
   // report_execution_error_srv_ =
   //   nh->advertiseService("/mob/ellis_planner/report_execution_error", &PlannerInterface::ReportExecutionError, this);
   report_execution_error_srv_ =
@@ -147,6 +151,10 @@ void PlannerInterface::PlanCallback(const ff_msgs::PlanGoal& goal) {
 
   PublishPoseMarker(start_x, start_y, start_z, start_yaw, "ellis/start");
   PublishPoseMarker(goal_pose.position.x, goal_pose.position.y, goal_pose.position.z, goal_yaw, "ellis/goal");
+  PublishObstacleMarkers();
+
+  // NODELET_ERROR_STREAM("** " << env_.CollisionTestFunc(start_x, start_y, start_yaw));
+  // NODELET_ERROR_STREAM("** " << env_.CollisionTestFunc(goal_pose.position.x, goal_pose.position.y, goal_yaw));
 
   // TODO(eratner) This may be inefficient, but makes sure old search data is not carried over into subsequent searches
   env_.Clear();
@@ -385,6 +393,25 @@ void PlannerInterface::PublishPoseMarker(double x, double y, double z, double ya
   }
 }
 
+bool PlannerInterface::AddObstacle(AddObstacle::Request& req, AddObstacle::Response& res) {
+  if (req.type == "rectangle") {
+    env_.AddCollisionObject(new RectangleCollisionObject(req.name, req.pose.position.x, req.pose.position.y,
+                                                         tf2::getYaw(req.pose.orientation), req.size.x, req.size.y));
+  } else {
+    NODELET_ERROR_STREAM("Obstacle type \"" << req.type << "\" unsupported!");
+    res.success = false;
+    return false;
+  }
+
+  return true;
+}
+
+bool PlannerInterface::ClearObstacles(std_srvs::Trigger::Request& req, std_srvs::Trigger::Response& res) {
+  env_.ClearCollisionObjects();
+  res.success = true;
+  return true;
+}
+
 // bool PlannerInterface::ReportExecutionError(std_srvs::Trigger::Request& req, std_srvs::Trigger::Response& res) {
 //   // Get the robot's current pose.
 //   double x = 0.0, y = 0.0, z = 0.0, yaw = 0.0;
@@ -527,6 +554,18 @@ void PlannerInterface::PublishExecutionErrorNeighborhoodMarkers() {
 bool PlannerInterface::ClearExecutionErrors(std_srvs::Trigger::Request& req, std_srvs::Trigger::Response& res) {
   env_.ClearExecutionErrorNeighborhoods();
   return true;
+}
+
+void PlannerInterface::PublishObstacleMarkers() {
+  const auto& obstacles = env_.GetCollisionObjects();
+  for (int i = 0; i < obstacles.size(); ++i) {
+    auto obs = obstacles[i];
+    auto msg = obs->GetMarker();
+    msg.header.frame_id = std::string(FRAME_NAME_WORLD);
+    msg.ns = "/mob/ellis_planner/obstacle";
+    msg.id = i;
+    vis_pub_.publish(msg);
+  }
 }
 
 void PlannerInterface::PublishPathMarkers(const std::vector<ellis_planner::State::Ptr>& path) {

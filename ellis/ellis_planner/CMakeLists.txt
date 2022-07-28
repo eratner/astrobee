@@ -25,7 +25,9 @@ foreach(SRC ${SRV_FILES})
 endforeach()
 add_service_files(FILES ${SRV_FILE_NAMES})
 
-generate_messages()
+generate_messages(
+  DEPENDENCIES geometry_msgs
+)
 
 catkin_package(
   INCLUDE_DIRS include

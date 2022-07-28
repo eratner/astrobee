@@ -84,6 +84,12 @@ class Environment {
 
   RectangleCollisionObject::Ptr GetRobotCollisionObject();
 
+  void AddCollisionObject(CollisionObject::Ptr col);
+
+  const std::vector<CollisionObject::Ptr> &GetCollisionObjects();
+
+  void ClearCollisionObjects();
+
   // Returns a tuple of the outcome state and the cost of taking the action.
   std::tuple<State::Ptr, double> GetOutcome(const State::Ptr state, const Action& action);
 
@@ -124,6 +130,8 @@ class Environment {
     int yaw_disc_;
   };
 
+  std::string CollisionTestFunc(double x, double y, double yaw);
+
  private:
   // Discretization parameters.
   double m_per_unit_x_;      // Meters/unit in x (discretization of x).
@@ -150,6 +158,7 @@ class Environment {
   std::vector<Action> actions_;
 
   RectangleCollisionObject::Ptr robot_collision_object_;
+  std::vector<CollisionObject::Ptr> collision_objects_;
 
   // Execution errors.
   ExecutionErrorNeighborhoodParameters exec_error_params_;

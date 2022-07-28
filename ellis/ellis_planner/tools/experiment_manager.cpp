@@ -11,6 +11,7 @@
 #include <std_srvs/Trigger.h>
 #include <boost/circular_buffer.hpp>
 #include <ellis_planner/ReportExecutionError.h>
+#include <ellis_planner/AddObstacle.h>
 #include <array>
 #include <string>
 #include <vector>
@@ -73,6 +74,9 @@ class ExperimentManager {
       ROS_WARN("[ExperimentManager] No waypoints specified");
     }
 
+    add_obstacle_client_ = nh_.serviceClient<ellis_planner::AddObstacle>("/mob/ellis_planner/add_obstacle");
+    clear_obstacles_client_ = nh_.serviceClient<std_srvs::Trigger>("/mob/ellis_planner/clear_obstacles");
+
     // report_execution_error_client_ =
     // nh_.serviceClient<std_srvs::Trigger>("/mob/ellis_planner/report_execution_error");
     report_execution_error_client_ =
@@ -99,6 +103,79 @@ class ExperimentManager {
 
     stop_robot_on_execution_error_ = p_nh_.param<bool>("stop_robot_on_execution_error", true);
     ROS_INFO_STREAM("Stopping robot on execution failure? " << (stop_robot_on_execution_error_ ? "YES" : "NO"));
+
+    while (ros::ok()) {
+      if (add_obstacle_client_.waitForExistence(ros::Duration(0.25))) {
+        break;
+      } else {
+        ROS_WARN("[ExperimentManager] Waiting for add obstacle server...");
+        ros::spinOnce();
+      }
+    }
+
+    while (ros::ok()) {
+      if (clear_obstacles_client_.waitForExistence(ros::Duration(0.25))) {
+        break;
+      } else {
+        ROS_WARN("[ExperimentManager] Waiting for clear obstacles server...");
+        ros::spinOnce();
+      }
+    }
+
+    // Clear any existing obstacles.
+    std_srvs::Trigger srv;
+    if (clear_obstacles_client_.call(srv))
+      ROS_INFO("[ExperimentManager] Clearing existing obstacles...");
+    else
+      ROS_WARN("[ExperimentManager] Failed to call service to clear existing obstacles!");
+
+    XmlRpc::XmlRpcValue obstacles;
+    if (p_nh_.getParam("obstacles", obstacles)) {
+      for (int i = 0; i < obstacles.size(); ++i) {
+        XmlRpc::XmlRpcValue o = obstacles[i];
+        double x = 0.0, y = 0.0, yaw = 0.0;
+        double size_x = 0.0, size_y = 0.0;
+        std::string type = "rectangle";
+        std::string name = "obs";
+        for (auto it = o.begin(); it != o.end(); ++it) {
+          if (it->first == "x")
+            x = static_cast<double>(it->second);
+          else if (it->first == "y")
+            y = static_cast<double>(it->second);
+          else if (it->first == "yaw")
+            yaw = static_cast<double>(it->second);
+          else if (it->first == "size_x")
+            size_x = static_cast<double>(it->second);
+          else if (it->first == "size_y")
+            size_y = static_cast<double>(it->second);
+          else if (it->first == "name")
+            name = static_cast<std::string>(it->second);
+          else if (it->first == "type")
+            type = static_cast<std::string>(it->second);
+        }
+        ROS_INFO_STREAM("  Obstacle " << i << ": {name: " << name << ", type: " << type << ", x: " << x << ", y: " << y
+                                      << ", yaw: " << yaw << ", size_x: " << size_x << ", size_y: " << size_y << "}");
+        ellis_planner::AddObstacle add_obs;
+        add_obs.request.type = type;
+        add_obs.request.name = name;
+        add_obs.request.pose.position.x = x;
+        add_obs.request.pose.position.y = y;
+        tf2::Quaternion orien;
+        orien.setRPY(0, 0, yaw);
+        add_obs.request.pose.orientation.x = orien.x();
+        add_obs.request.pose.orientation.y = orien.y();
+        add_obs.request.pose.orientation.z = orien.z();
+        add_obs.request.pose.orientation.w = orien.w();
+        add_obs.request.size.x = size_x;
+        add_obs.request.size.y = size_y;
+        if (add_obstacle_client_.call(add_obs))
+          ROS_INFO("[ExperimentManager] Adding obstacle...");
+        else
+          ROS_WARN("[ExperimentManager] Failed to call service to add obstacle!");
+      }
+    } else {
+      ROS_WARN("[ExperimentManager] No obstacles specified");
+    }
 
     return true;
   }
@@ -395,6 +472,8 @@ class ExperimentManager {
   ff_util::ConfigClient cfg_;
   std::vector<std::array<double, 3>> waypoint_;
   std::vector<std::string> planner_type_;
+  ros::ServiceClient add_obstacle_client_;
+  ros::ServiceClient clear_obstacles_client_;
   ros::ServiceClient report_execution_error_client_;
   ros::ServiceClient clear_execution_errors_client_;
   boost::circular_buffer<ff_msgs::ControlFeedback> control_feedback_history_;

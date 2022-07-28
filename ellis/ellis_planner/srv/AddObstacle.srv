@@ -1,0 +1,16 @@
+# Copyright 2022 Ellis Ratner (eratner@berkeley.edu)
+
+# Name of the obstacle.
+string name
+
+# Type of the obstacle (currently only "rectangle" supported)
+string type
+
+# Pose of the obstacle.
+geometry_msgs/Pose pose
+
+# Size of the obstacle.
+geometry_msgs/Point size
+
+---
+bool success
