@@ -5,11 +5,29 @@
 
 namespace ellis_planner {
 
+Search::Performance::Performance() : num_expansions_(0), planning_time_sec_(0.0) {}
+
+void Search::Performance::Reset() {
+  num_expansions_ = 0;
+  planning_time_sec_ = 0.0;
+}
+
+void Search::Performance::StartClock() { planning_start_time_ = std::chrono::high_resolution_clock::now(); }
+
+void Search::Performance::StopClock() {
+  auto end_time = std::chrono::high_resolution_clock::now();
+  planning_time_sec_ =
+    std::chrono::duration_cast<std::chrono::milliseconds>(end_time - planning_start_time_).count() / 1000.0;
+}
+
 Search::Search(Environment* env) : env_(env) {}
 
 Search::~Search() {}
 
 bool Search::Run(State::Ptr start_state, std::vector<State::Ptr>& path) {
+  perf_.Reset();
+  perf_.StartClock();
+
   std::set<std::tuple<double, unsigned int>> open;
   open.insert(std::make_tuple(env_->GetHeuristicCostToGoal(start_state), start_state->GetId()));
 
@@ -27,8 +45,11 @@ bool Search::Run(State::Ptr start_state, std::vector<State::Ptr>& path) {
     if (env_->IsGoal(state)) {
       // Found the goal! Now, reconstruct the path.
       ReconstructPath(state, path);
+      perf_.StopClock();
       return true;
     }
+
+    perf_.num_expansions_++;
 
     for (const auto& action : actions) {
       auto outcome_and_cost = env_->GetOutcome(state, action);
@@ -47,8 +68,11 @@ bool Search::Run(State::Ptr start_state, std::vector<State::Ptr>& path) {
   }
 
   // Planner must have failed to find a path.
+  perf_.StopClock();
   return false;
 }
+
+const Search::Performance& Search::GetPerformance() const { return perf_; }
 
 void Search::ReconstructPath(const State::Ptr goal_state, std::vector<State::Ptr>& path) const {
   State::Ptr state = goal_state;

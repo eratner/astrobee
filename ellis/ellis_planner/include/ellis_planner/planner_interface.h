@@ -12,6 +12,7 @@
 #include <ellis_planner/search.h>
 #include <ellis_planner/ReportExecutionError.h>
 #include <ellis_planner/AddObstacle.h>
+#include <ellis_planner/PlanningInfo.h>
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2/utils.h>
 #include <std_srvs/Trigger.h>
@@ -20,6 +21,18 @@
 #include <cmath>
 
 namespace ellis_planner {
+
+// TODO(eratner) Move somewhere else...
+template <typename MessageType>
+class ScopedPublish {
+ public:
+  explicit ScopedPublish(ros::Publisher* pub) : pub_(pub) {}
+
+  ~ScopedPublish() { pub_->publish(msg_); }
+
+  ros::Publisher* pub_;
+  MessageType msg_;
+};
 
 class PlannerInterface : public planner::PlannerImplementation {
  public:
@@ -45,7 +58,7 @@ class PlannerInterface : public planner::PlannerImplementation {
   void PublishPoseMarker(double x, double y, double z, double yaw, const std::string& name = "pose",
                          bool show_name = true, double r = 1.0, double g = 0.0, double b = 0.0, double a = 0.75);
 
-  bool AddObstacle(AddObstacle::Request&req, AddObstacle::Response&res);
+  bool AddObstacle(AddObstacle::Request& req, AddObstacle::Response& res);
 
   bool ClearObstacles(std_srvs::Trigger::Request& req, std_srvs::Trigger::Response& res);
 
@@ -65,12 +78,15 @@ class PlannerInterface : public planner::PlannerImplementation {
 
   void PublishWeightedPenalties(double min_x, double max_x, double min_y, double max_y);
 
+  void PublishWeightedPenaltyHeatmap(double min_x, double max_x, double min_y, double max_y);
+
   ff_util::ConfigServer cfg_;
 
   tf2_ros::Buffer tf_buffer_;
   tf2_ros::TransformListener tf_listener_;
 
   ros::Publisher vis_pub_;
+  ros::Publisher planning_info_pub_;
 
   ros::ServiceServer add_obstacle_srv_;
   ros::ServiceServer clear_obstacles_srv_;

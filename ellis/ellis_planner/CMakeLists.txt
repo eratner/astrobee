@@ -25,6 +25,13 @@ foreach(SRC ${SRV_FILES})
 endforeach()
 add_service_files(FILES ${SRV_FILE_NAMES})
 
+file(GLOB MSG_FILES msg/*.msg)
+foreach(SRC ${MSG_FILES})
+  get_filename_component(NAME ${SRC} NAME)
+  list(APPEND MSG_FILE_NAMES ${NAME})
+endforeach()
+add_message_files(FILES ${MSG_FILE_NAMES})
+
 generate_messages(
   DEPENDENCIES geometry_msgs
 )

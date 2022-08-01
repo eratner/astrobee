@@ -24,6 +24,9 @@ bool PlannerInterface::InitializePlanner(ros::NodeHandle* nh) {
   std::string vis_topic = "/mob/ellis_planner/vis";
   vis_pub_ = nh->advertise<visualization_msgs::Marker>(vis_topic, 50);
 
+  std::string planning_info_topic = "/mob/ellis_planner/info";
+  planning_info_pub_ = nh->advertise<PlanningInfo>(planning_info_topic, 10);
+
   add_obstacle_srv_ = nh->advertiseService("/mob/ellis_planner/add_obstacle", &PlannerInterface::AddObstacle, this);
   clear_obstacles_srv_ =
     nh->advertiseService("/mob/ellis_planner/clear_obstacles", &PlannerInterface::ClearObstacles, this);
@@ -94,6 +97,16 @@ bool PlannerInterface::ReconfigureCallback(dynamic_reconfigure::Config& config) 
 void PlannerInterface::PlanCallback(const ff_msgs::PlanGoal& goal) {
   NODELET_DEBUG("Received new planning request!");
 
+  ScopedPublish<PlanningInfo> info_pub(&planning_info_pub_);
+  info_pub.msg_.success = false;
+
+  // TODO(eratner) Add action set to info_pub.msg_
+  info_pub.msg_.nbhd_state_radius_pos = env_.GetExecutionErrorNeighborhoodParameters().state_radius_pos_;
+  info_pub.msg_.nbhd_state_radius_yaw = env_.GetExecutionErrorNeighborhoodParameters().state_radius_yaw_;
+  info_pub.msg_.nbhd_action_radius_pos = env_.GetExecutionErrorNeighborhoodParameters().action_radius_pos_;
+  // info_pub.msg_.nbhd_action_radius_yaw = ...; // TODO(eratner) Fix this
+  info_pub.msg_.nbhd_penalty = env_.GetExecutionErrorNeighborhoodParameters().penalty_;
+
   ff_msgs::PlanResult result;
 
   // Set the boundaries on the state space.
@@ -137,6 +150,9 @@ void PlannerInterface::PlanCallback(const ff_msgs::PlanGoal& goal) {
     return PlanResult(result);
   }
 
+  env_.GetBounds(info_pub.msg_.bounds_min.x, info_pub.msg_.bounds_max.x, info_pub.msg_.bounds_min.y,
+                 info_pub.msg_.bounds_max.y);
+
   const auto& goal_pose = goal.states.back().pose;
   double goal_yaw = tf2::getYaw(goal_pose.orientation);
   ros::Time offset = ros::Time::now();
@@ -148,6 +164,17 @@ void PlannerInterface::PlanCallback(const ff_msgs::PlanGoal& goal) {
     result.response = ff_msgs::PlanResult::BAD_ARGUMENTS;
     return PlanResult(result);
   }
+
+  info_pub.msg_.start_state.position.x = start_x;
+  info_pub.msg_.start_state.position.y = start_y;
+  info_pub.msg_.start_state.position.z = start_z;
+  tf2::Quaternion start_orien;
+  start_orien.setRPY(0, 0, start_yaw);
+  info_pub.msg_.start_state.orientation.x = start_orien.x();
+  info_pub.msg_.start_state.orientation.y = start_orien.y();
+  info_pub.msg_.start_state.orientation.z = start_orien.z();
+  info_pub.msg_.start_state.orientation.w = start_orien.w();
+  info_pub.msg_.goal_state = goal_pose;
 
   PublishPoseMarker(start_x, start_y, start_z, start_yaw, "ellis/start");
   PublishPoseMarker(goal_pose.position.x, goal_pose.position.y, goal_pose.position.z, goal_yaw, "ellis/goal");
@@ -171,6 +198,10 @@ void PlannerInterface::PlanCallback(const ff_msgs::PlanGoal& goal) {
     result.response = ff_msgs::PlanResult::BAD_ARGUMENTS;
     return PlanResult(result);
   }
+
+  info_pub.msg_.success = true;
+  info_pub.msg_.planning_time_sec = search_.GetPerformance().planning_time_sec_;
+  info_pub.msg_.num_expansions = search_.GetPerformance().num_expansions_;
 
   // DeletePathMarkers();
   // PublishPathMarkers(path);
@@ -485,7 +516,8 @@ bool PlannerInterface::ReportExecutionError(ReportExecutionError::Request& req, 
 
   double min_x = 0.0, max_x = 0.0, min_y = 0.0, max_y = 0.0;
   env_.GetBounds(min_x, max_x, min_y, max_y);
-  PublishWeightedPenalties(min_x, max_x, min_y, max_y);
+  // PublishWeightedPenalties(min_x, max_x, min_y, max_y);
+  PublishWeightedPenaltyHeatmap(min_x, max_x, min_y, max_y);
 
   res.success = true;
   return true;
@@ -638,6 +670,70 @@ void PlannerInterface::PublishWeightedPenalties(double min_x, double max_x, doub
       y += step_size_y;
     }
     x += step_size_x;
+  }
+
+  vis_pub_.publish(msg);
+}
+
+void PlannerInterface::PublishWeightedPenaltyHeatmap(double min_x, double max_x, double min_y, double max_y) {
+  visualization_msgs::Marker msg;
+  msg.header.frame_id = std::string(FRAME_NAME_WORLD);
+  msg.ns = "/mob/ellis_planner/penalty_heatmap";
+  msg.id = 0;
+  msg.type = visualization_msgs::Marker::CUBE_LIST;
+  msg.pose.position.x = 0;
+  msg.pose.position.y = 0;
+  msg.pose.position.z = -0.4;
+  msg.pose.orientation.x = 0;
+  msg.pose.orientation.y = 0;
+  msg.pose.orientation.z = 0;
+  msg.pose.orientation.w = 1;
+
+  const double step_size_x = 0.025;
+  const double step_size_y = 0.025;
+
+  msg.scale.x = step_size_x;
+  msg.scale.y = step_size_y;
+  msg.scale.z = 0.1;
+
+  double min_penalty = 1e9, max_penalty = -1e9;
+
+  double x = min_x;
+  while (x <= max_x) {
+    double y = min_y;
+    while (y <= max_y) {
+      geometry_msgs::Point p;
+      p.x = x;
+      p.y = y;
+      p.z = 0.0;
+
+      // Temporarily store the penalty in the z-value of the point.
+      for (const auto& action : env_.GetActions()) {
+        // TODO(eratner) loop over yaws
+        p.z += env_.GetWeightedPenalty(x, y, 0.0, action);
+      }
+      msg.points.push_back(p);
+
+      min_penalty = std::min(min_penalty, p.z);
+      max_penalty = std::max(max_penalty, p.z);
+
+      y += step_size_y;
+    }
+    x += step_size_x;
+  }
+
+  for (auto& p : msg.points) {
+    double penalty = p.z;
+    p.z = -0.4;
+
+    // Convert penalty to RGB color.
+    double frac = 2.0 * (penalty - min_penalty) / (max_penalty - min_penalty);
+    std_msgs::ColorRGBA c;
+    c.b = std::max(0.0, 1.0 - frac);
+    c.r = std::max(0.0, frac - 1.0);
+    c.g = 1.0 - c.b - c.r;
+    c.a = 1.0;
+    msg.colors.push_back(c);
   }
 
   vis_pub_.publish(msg);
