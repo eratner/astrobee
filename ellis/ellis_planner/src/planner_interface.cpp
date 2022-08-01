@@ -107,6 +107,42 @@ void PlannerInterface::PlanCallback(const ff_msgs::PlanGoal& goal) {
   // info_pub.msg_.nbhd_action_radius_yaw = ...; // TODO(eratner) Fix this
   info_pub.msg_.nbhd_penalty = env_.GetExecutionErrorNeighborhoodParameters().penalty_;
 
+  for (const auto& action : env_.GetActions()) {
+    double n = std::sqrt(std::pow(action.change_in_x_, 2) + std::pow(action.change_in_y_, 2));
+    geometry_msgs::Twist a;
+    a.linear.x = action.change_in_x_;
+    a.linear.y = action.change_in_y_;
+    a.linear.z = 0.0;
+    a.angular.x = 0.0;
+    a.angular.y = 0.0;
+    a.angular.z = action.change_in_yaw_;
+    info_pub.msg_.actions.push_back(a);
+    info_pub.msg_.action_names.push_back(action.name_);
+    info_pub.msg_.action_costs.push_back(action.cost_);
+  }
+
+  for (const auto& nbhd : env_.GetExecutionErrorNeighborhoods()) {
+    geometry_msgs::Pose state;
+    state.position.x = nbhd.x_;
+    state.position.y = nbhd.y_;
+    state.position.z = 0.0;  // TODO(eratner) Unused
+    tf2::Quaternion orien;
+    orien.setRPY(0, 0, nbhd.yaw_);
+    state.orientation.x = orien.x();
+    state.orientation.y = orien.y();
+    state.orientation.z = orien.z();
+    state.orientation.w = orien.w();
+    geometry_msgs::Twist action;
+    action.linear.x = nbhd.action_dir_x_;
+    action.linear.y = nbhd.action_dir_y_;
+    action.linear.z = 0.0;
+    action.angular.x = 0.0;
+    action.angular.y = 0.0;
+    action.angular.z = nbhd.action_dir_yaw_;
+    info_pub.msg_.discrepancy_states.push_back(state);
+    info_pub.msg_.discrepancy_actions.push_back(action);
+  }
+
   ff_msgs::PlanResult result;
 
   // Set the boundaries on the state space.
@@ -189,7 +225,8 @@ void PlannerInterface::PlanCallback(const ff_msgs::PlanGoal& goal) {
   env_.SetGoal(goal_pose.position.x, goal_pose.position.y, goal_yaw);
   std::vector<ellis_planner::State::Ptr> path;
   auto start_state = env_.GetState(start_x, start_y, start_yaw);
-  if (!search_.Run(start_state, path)) {
+  double path_cost = 1e9;
+  if (!search_.Run(start_state, path, path_cost)) {
     NODELET_ERROR_STREAM("Could not find a path to the goal, with start ("
                          << start_x << ", " << start_y << ", " << start_yaw << ") and goal (" << goal_pose.position.x
                          << ", " << goal_pose.position.y << ", " << goal_yaw << ")");
@@ -203,9 +240,25 @@ void PlannerInterface::PlanCallback(const ff_msgs::PlanGoal& goal) {
   info_pub.msg_.planning_time_sec = search_.GetPerformance().planning_time_sec_;
   info_pub.msg_.num_expansions = search_.GetPerformance().num_expansions_;
 
+  info_pub.msg_.path_cost = path_cost;
+  for (const auto state : path) {
+    geometry_msgs::Pose p;
+    p.position.x = state->GetX();
+    p.position.y = state->GetY();
+    p.position.z = start_z;
+    tf2::Quaternion orien;
+    orien.setRPY(0, 0, state->GetYaw());
+    p.orientation.x = orien.x();
+    p.orientation.y = orien.y();
+    p.orientation.z = orien.z();
+    p.orientation.w = orien.w();
+    info_pub.msg_.path.push_back(p);
+  }
+
   // DeletePathMarkers();
   // PublishPathMarkers(path);
 
+  NODELET_ERROR_STREAM("Found a path with cost: " << path_cost);
   NODELET_ERROR("-----");
   NODELET_ERROR_STREAM("state: " << *start_state);
   for (const auto& nbhd : env_.GetExecutionErrorNeighborhoods()) {
@@ -675,7 +728,8 @@ void PlannerInterface::PublishWeightedPenalties(double min_x, double max_x, doub
   vis_pub_.publish(msg);
 }
 
-void PlannerInterface::PublishWeightedPenaltyHeatmap(double min_x, double max_x, double min_y, double max_y) {
+void PlannerInterface::PublishWeightedPenaltyHeatmap(double min_x, double max_x, double min_y, double max_y,
+                                                     double visualize_at_z) {
   visualization_msgs::Marker msg;
   msg.header.frame_id = std::string(FRAME_NAME_WORLD);
   msg.ns = "/mob/ellis_planner/penalty_heatmap";
@@ -683,7 +737,7 @@ void PlannerInterface::PublishWeightedPenaltyHeatmap(double min_x, double max_x,
   msg.type = visualization_msgs::Marker::CUBE_LIST;
   msg.pose.position.x = 0;
   msg.pose.position.y = 0;
-  msg.pose.position.z = -0.4;
+  msg.pose.position.z = visualize_at_z;
   msg.pose.orientation.x = 0;
   msg.pose.orientation.y = 0;
   msg.pose.orientation.z = 0;
@@ -724,7 +778,7 @@ void PlannerInterface::PublishWeightedPenaltyHeatmap(double min_x, double max_x,
 
   for (auto& p : msg.points) {
     double penalty = p.z;
-    p.z = -0.4;
+    p.z = 0.0;
 
     // Convert penalty to RGB color.
     double frac = 2.0 * (penalty - min_penalty) / (max_penalty - min_penalty);

@@ -23,4 +23,4 @@ ellis_planner:
     a5:
       name: rot_cw
       change_in_yaw: -0.2
-      cast: 0.2
+      cost: 0.2

@@ -21,6 +21,7 @@ float64 path_cost
 
 # Planner action set info.
 geometry_msgs/Twist[] actions
+string[] action_names
 float64[] action_costs
 
 # Info about discrepancies between execution and planning model.

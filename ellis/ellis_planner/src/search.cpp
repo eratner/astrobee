@@ -24,9 +24,11 @@ Search::Search(Environment* env) : env_(env) {}
 
 Search::~Search() {}
 
-bool Search::Run(State::Ptr start_state, std::vector<State::Ptr>& path) {
+bool Search::Run(State::Ptr start_state, std::vector<State::Ptr>& path, double& path_cost) {
   perf_.Reset();
   perf_.StartClock();
+
+  path_cost = 1e9;
 
   std::set<std::tuple<double, unsigned int>> open;
   open.insert(std::make_tuple(env_->GetHeuristicCostToGoal(start_state), start_state->GetId()));
@@ -45,6 +47,7 @@ bool Search::Run(State::Ptr start_state, std::vector<State::Ptr>& path) {
     if (env_->IsGoal(state)) {
       // Found the goal! Now, reconstruct the path.
       ReconstructPath(state, path);
+      path_cost = state->cost_to_come_;
       perf_.StopClock();
       return true;
     }

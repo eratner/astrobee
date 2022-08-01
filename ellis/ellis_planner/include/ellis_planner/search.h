@@ -31,7 +31,7 @@ class Search {
 
   ~Search();
 
-  bool Run(State::Ptr start_state, std::vector<State::Ptr>& path);
+  bool Run(State::Ptr start_state, std::vector<State::Ptr>& path, double& path_cost);
 
   const Performance& GetPerformance() const;
 

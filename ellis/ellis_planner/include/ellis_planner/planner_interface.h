@@ -78,7 +78,8 @@ class PlannerInterface : public planner::PlannerImplementation {
 
   void PublishWeightedPenalties(double min_x, double max_x, double min_y, double max_y);
 
-  void PublishWeightedPenaltyHeatmap(double min_x, double max_x, double min_y, double max_y);
+  void PublishWeightedPenaltyHeatmap(double min_x, double max_x, double min_y, double max_y,
+                                     double visualize_at_z = -0.2);
 
   ff_util::ConfigServer cfg_;
 
