@@ -72,8 +72,8 @@ def read_bagfile(bagfile):
             errors.append(np.array([
                 desired_pose.position.x - next_actual_pose.position.x,
                 desired_pose.position.y - next_actual_pose.position.y]))
-            print("x: {}, u: {}, e: {}".format(
-                states[-1], controls[-1], np.linalg.norm(errors[-1])))
+            print("x: {}, u: {}, e: {}, u (unnorm): {}".format(
+                states[-1], controls[-1], np.linalg.norm(errors[-1]), u))
 
 
         disc_classifier = DiscrepancyClassifier()

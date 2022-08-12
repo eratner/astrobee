@@ -20,7 +20,7 @@
   <node name="fake_disturbance_manager"
         type="fake_disturbance_manager.py"
         pkg="ellis_planner"
-        output="screen" />
+        output="log" />
 
   <!-- Run the experiment manager. -->
   <node name="experiment_manager"
