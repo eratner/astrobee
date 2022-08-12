@@ -71,8 +71,8 @@ add_dependencies(ellis_planner ${catkin_EXPORTED_TARGETS})
 target_link_libraries(ellis_planner ${catkin_LIBRARIES} ${PCL_LIBRARIES})
 
 add_executable(exp tools/experiment_manager.cpp)
-add_dependencies(exp ${catkin_EXPORTED_TARGETS})
-target_link_libraries(exp ${catkin_LIBRARIES} ${PCL_LIBRARIES})
+add_dependencies(exp ${catkin_EXPORTED_TARGETS} ellis_planner)
+target_link_libraries(exp ${catkin_LIBRARIES} ${PCL_LIBRARIES} ellis_planner)
 install(TARGETS exp DESTINATION bin)
 install(CODE "execute_process(
   COMMAND ln -s ../../bin/exp share/${PROJECT_NAME}

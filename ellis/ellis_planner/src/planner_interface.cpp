@@ -339,6 +339,12 @@ void PlannerInterface::PlanCallback(const ff_msgs::PlanGoal& goal) {
     time += time_between_waypoints;
   }
 
+  for (int i = 0; i < result.segment.size(); ++i) {
+    const auto& pose = result.segment[i].pose;
+    NODELET_ERROR_STREAM("  " << i << ": pos: (" << pose.position.x << ", " << pose.position.y << ", "
+                              << pose.position.z << "), yaw: " << tf2::getYaw(pose.orientation));
+  }
+
   last_trajectory_ = result.segment;
 
   PlanResult(result);

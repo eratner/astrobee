@@ -8,11 +8,17 @@
   <node pkg="rosbag"
         type="record"
         name="rosbag_recorder"
-        args="record -o /tmp/ellis-experiment /tf /tf_static /mob/ellis_planner/vis /mob/ellis_planner/info /mob/choreographer/segment /mob/motion/feedback" />
+        args="record -o /tmp/ellis-experiment /tf /tf_static /mob/ellis_planner/vis /mob/ellis_planner/info /mob/choreographer/segment /mob/motion/feedback /exp/control_history" />
 
   <!-- Run the fake obstacle manager. -->
   <node name="fake_obstacle_manager"
         type="fake_obstacle_manager.py"
+        pkg="ellis_planner"
+        output="screen" />
+
+  <!-- Run the fake disturbance manager. -->
+  <node name="fake_disturbance_manager"
+        type="fake_disturbance_manager.py"
         pkg="ellis_planner"
         output="screen" />
 

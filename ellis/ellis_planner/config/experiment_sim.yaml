@@ -1,30 +1,30 @@
 experiment_manager:
   waypoints:
-    # - x: 0.0
-    #   y: 0.0
-    #   yaw: 0.0
-    # - x: 0.7
-    #   y: 0.0
-    #   yaw: 0.0
-    #   planner: ellis
-
-    - x: -0.45
-      y: 0.35
+    - x: 0.0
+      y: 0.0
       yaw: 0.0
-      # planner: ellis
     - x: 0.7
-      y: 0.35
+      y: 0.0
       yaw: 0.0
       planner: ellis
 
-  obstacles:
-    - type: rectangle
-      name: obs
-      x: 0.0
-      y: 0.0
-      yaw: 0.0
-      size_x: 0.3
-      size_y: 0.3
+    # - x: -0.45
+    #   y: 0.35
+    #   yaw: 0.0
+    #   # planner: ellis
+    # - x: 0.7
+    #   y: 0.35
+    #   yaw: 0.0
+    #   planner: ellis
+
+  obstacles: []
+    # - type: rectangle
+    #   name: obs
+    #   x: 0.0
+    #   y: 0.0
+    #   yaw: 0.0
+    #   size_x: 0.3
+    #   size_y: 0.3
 
 fake_obstacle_manager:
   freq: 10.0
@@ -32,18 +32,36 @@ fake_obstacle_manager:
   gazebo_ns: /gazebo
   topics:
     vis: /mob/ellis_planner/vis
-  obstacles:
-    - name: obstacle1
-      size:
-        x: 0.1
-        y: 0.5
-        z: 0.1
-      pose:
-        pos:
-          x: 0.3
-          y: 0.3 # 0
-          z: -0.5
-        orien:
-          roll: 0
-          pitch: 0
-          yaw: 0
+  obstacles: []
+    # - name: obstacle1
+    #   size:
+    #     x: 0.1
+    #     y: 0.5
+    #     z: 0.1
+    #   pose:
+    #     pos:
+    #       x: 0.3
+    #       y: 0 # 0.3
+    #       z: -0.5
+    #     orien:
+    #       roll: 0
+    #       pitch: 0
+    #       yaw: 0
+
+fake_disturbance_manager:
+  world_frame_id: world
+  body_frame_id: body
+  gazebo_ns: /gazebo
+  topics:
+    vis: /mob/ellis_planner/vis
+  disturbances:
+    - region:
+        center:
+          x: 0.25
+          y: 0.0
+        size:
+          x: 0.35
+          y: 0.5
+      force:
+        x: -0.1
+        y: -0.5

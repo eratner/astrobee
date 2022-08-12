@@ -12,6 +12,7 @@
 #include <boost/circular_buffer.hpp>
 #include <ellis_planner/ReportExecutionError.h>
 #include <ellis_planner/AddObstacle.h>
+#include <ellis_planner/ControlHistory.h>
 #include <array>
 #include <string>
 #include <vector>
@@ -177,6 +178,8 @@ class ExperimentManager {
       ROS_WARN("[ExperimentManager] No obstacles specified");
     }
 
+    control_history_pub_ = nh_.advertise<ellis_planner::ControlHistory>("/exp/control_history", 10);
+
     return true;
   }
 
@@ -260,6 +263,9 @@ class ExperimentManager {
     }
 
     control_feedback_history_.clear();
+
+    control_history_.desired_pose.clear();
+    control_history_.actual_pose.clear();
 
     ff_msgs::MotionGoal goal;
     goal.flight_mode = "nominal";
@@ -414,6 +420,11 @@ class ExperimentManager {
               if (!Stop()) ROS_ERROR("[ExperimentManager] Failed to stop the robot!");
             }
 
+            // TODO(eratner) experimental-- publish control history
+            ROS_INFO_STREAM("[ExperimentManager] Publishing control history with "
+                            << control_history_.actual_pose.size() << " poses...");
+            control_history_pub_.publish(control_history_);
+
             if (ReportExecutionError()) {
               ROS_INFO("[ExperimentManager] Reported execution error...");
               state_ = REPLAN_NEEDED;
@@ -453,12 +464,41 @@ class ExperimentManager {
   }
 
   void FeedbackCallback(ff_msgs::MotionFeedbackConstPtr const& feedback) {
-    std::cout << '\r' << std::flush;
-    std::cout << std::fixed << std::setprecision(2) << "POS: " << 1000.00 * feedback->progress.error_position << " mm "
-              << "ATT: " << 57.2958 * feedback->progress.error_attitude << " deg "
-              << "VEL: " << 1000.00 * feedback->progress.error_velocity << " mm/s "
-              << "OMEGA: " << 57.2958 * feedback->progress.error_omega << " deg/s "
-              << "[" << feedback->state.fsm_state << "]   ";
+    // std::cout << '\r' << std::flush;
+    // std::cout << std::fixed << std::setprecision(2) << "POS: " << 1000.00 * feedback->progress.error_position << " mm
+    // "
+    //           << "ATT: " << 57.2958 * feedback->progress.error_attitude << " deg "
+    //           << "VEL: " << 1000.00 * feedback->progress.error_velocity << " mm/s "
+    //           << "OMEGA: " << 57.2958 * feedback->progress.error_omega << " deg/s "
+    //           << "[" << feedback->state.fsm_state << "]   ";
+    ROS_INFO_STREAM("  Setpoint " << feedback->progress.index << ": pos: ("
+                                  << feedback->progress.setpoint.pose.position.x << ", "
+                                  << feedback->progress.setpoint.pose.position.y << ", "
+                                  << feedback->progress.setpoint.pose.position.z
+                                  << "), yaw: " << tf2::getYaw(feedback->progress.setpoint.pose.orientation));
+
+    double actual_x = 0.0, actual_y = 0.0, actual_z = 0.0, actual_yaw = 0.0;
+    if (!GetPose(actual_x, actual_y, actual_z, actual_yaw)) {
+      ROS_ERROR("    Failed to get robot's current pose!");
+    } else {
+      double err_pos = std::sqrt(std::pow(feedback->progress.setpoint.pose.position.x, 2) +
+                                 std::pow(feedback->progress.setpoint.pose.position.y, 2));
+      ROS_INFO_STREAM("    Actual pos: (" << actual_x << ", " << actual_y << ", " << actual_z
+                                          << "), yaw: " << actual_yaw << ", err pos: " << err_pos);
+    }
+
+    control_history_.desired_pose.push_back(feedback->progress.setpoint.pose);
+    geometry_msgs::Pose actual_pose;
+    actual_pose.position.x = actual_x;
+    actual_pose.position.y = actual_y;
+    actual_pose.position.z = actual_z;
+    tf2::Quaternion actual_orien;
+    actual_orien.setRPY(0, 0, actual_yaw);
+    actual_pose.orientation.x = actual_orien.x();
+    actual_pose.orientation.y = actual_orien.y();
+    actual_pose.orientation.z = actual_orien.z();
+    actual_pose.orientation.w = actual_orien.w();
+    control_history_.actual_pose.push_back(actual_pose);
 
     control_feedback_history_.push_back(feedback->progress);
   }
@@ -478,6 +518,9 @@ class ExperimentManager {
   ros::ServiceClient clear_execution_errors_client_;
   boost::circular_buffer<ff_msgs::ControlFeedback> control_feedback_history_;
   bool stop_robot_on_execution_error_;
+
+  ellis_planner::ControlHistory control_history_;
+  ros::Publisher control_history_pub_;
 };
 
 int main(int argc, char* argv[]) {
