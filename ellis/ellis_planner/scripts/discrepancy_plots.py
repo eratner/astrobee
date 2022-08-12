@@ -6,37 +6,44 @@ import numpy as np
 import math
 
 
-def exp_likelihood(arg, thresh, param):
-    return 1.0 / (1.0 + math.exp(arg/param - 5.0))
+class DiscrepancyClassifier:
+    NOT_DISCREPANCY = -1
+    DISCREPANCY = 1
 
-    # if arg >= thresh:
-    #     return 1.0
+    def __init__(self, k=5):
+        self._k = k
+        self._observations = []
 
-    # return math.exp(-(arg - thresh)**2 / param**2)
+    def add_observation(self, x, u, is_discrepancy=True):
+        self._observations.append(
+            (x, u, self.DISCREPANCY if is_discrepancy else self.NOT_DISCREPANCY))
 
+    def dist(self, xa, ua, xb, ub):
+        state_dist = np.linalg.norm(xa - xb)
+        control_angle = np.arccos(np.dot(ua, ub) /
+                                  (np.linalg.norm(ua) * np.linalg.norm(ub)))
+        # TODO(eratner) Determine the relative weightings
+        # return (1.0 * state_dist + 0.5 * control_angle)
+        return (1.0 * state_dist + 0.25 * control_angle)
 
-def plot_likelihood_func():
-    # mpl.rcParams['text.usetex'] = True
-    # mpl.rcParams['text.latex.preamble'] = [r'\usepackage{amsmath}']
+    def prob_func_v1(self, arg, param=1.0):
+        return np.exp(-arg**2 / param**2)
 
-    fig, ax = plt.subplots(figsize=(10, 5))
+    def get_discrepancy_prob_v1(self, x, u):
+        if len(self._observations) == 0:
+            return 0.0
 
-    dists = [0.001 * t for t in range(150)]
-    likelihoods = [exp_likelihood(d, 0.1, 0.01) for d in dists]
-    ax.plot(dists, likelihoods)
-    ax.set_xlim([-0.15, 0.15])
-    ax.set_ylim([-0.01, 1.01])
-    # ax.set_xlabel("Error")
-    # ax.set_ylabel("Discrepancy Likelihood")
+        min_dist = 1e9
+        for o in self._observations:
+            dist = self.dist(o[0], o[1], x, u)
+            min_dist = min(min_dist, dist)
 
-    ax.set_xlabel("$\Vert x' - \hat{f}(x, u) \Vert$")
-    ax.set_ylabel("$P(x, u, x' \mid$ discrepancy at $(x, u))$")
-
-    plt.show()
+        return self.prob_func_v1(min_dist, 0.1)
 
 
 def read_bagfile(bagfile):
-    thresh = 0.050 # Discrepancy threshold
+    # thresh = 0.050 # Discrepancy threshold
+    thresh = 0.025
 
     print("Reading from {}...".format(bagfile))
     bag = rosbag.Bag(bagfile)
@@ -69,6 +76,12 @@ def read_bagfile(bagfile):
                 states[-1], controls[-1], np.linalg.norm(errors[-1])))
 
 
+        disc_classifier = DiscrepancyClassifier()
+        for x, u, e in zip(states, controls, errors):
+            if np.linalg.norm(e) > thresh:
+                disc_classifier.add_observation(x, u)
+
+        ########################################################################
         desired_xs = [p.position.x for p in msg.desired_pose]
         desired_ys = [p.position.y for p in msg.desired_pose]
 
@@ -92,16 +105,69 @@ def read_bagfile(bagfile):
                 # Discrepancy.
                 actual_xs_not_ok.append(msg.actual_pose[i].position.x)
                 actual_ys_not_ok.append(msg.actual_pose[i].position.y)
+        ########################################################################
 
-        fig, ax = plt.subplots(figsize=(10, 10))
-        ax.set_xlim([-0.05, 0.15])
-        ax.set_ylim([-0.10, 0.10])
-        ax.scatter(desired_xs, desired_ys, color='black')
-        # ax.scatter(actual_xs, actual_ys, color='red')
-        ax.scatter(actual_xs_ok, actual_ys_ok, color='green', marker='o')
-        ax.scatter(actual_xs_not_ok, actual_ys_not_ok, color='red', marker='o')
+        U = [np.array([-1.0, 0.0]), np.array([1.0, 0.0]),
+             np.array([0.0, -1.0]), np.array([0.0, 1.0])]
+        for u in U:
+            probs = np.zeros((40, 40))
 
-        plt.show()
+            min_x = -0.05
+            step_x = 0.01
+            min_y = -0.20
+            step_y = 0.01
+
+            fig, ax = plt.subplots(figsize=(10, 10))
+            ax.set_title("$u = ({}, {})$".format(u[0], u[1]))
+            ax.set_xlim([min_x, min_x + 40 * step_x])
+            ax.set_ylim([min_y, min_y + 40 * step_y])
+            ax.set_xlabel("$x$ ($m$)")
+            ax.set_ylabel("$y$ ($m$)")
+
+            px = []
+            py = []
+            pz = []
+
+            for i in range(40):
+                for j in range(40):
+                    x = np.array([min_x + i * step_x,
+                                  min_y + j * step_y])
+                    prob = disc_classifier.get_discrepancy_prob_v1(x, u)
+
+                    px.append(x[0])
+                    py.append(x[1])
+                    pz.append(prob)
+
+                    # b = max(0.0, 1.0 - prob)
+                    # r = max(0.0, prob - 1.0)
+                    # g = 1.0 - b - r
+                    # ax.scatter([x[0]], [x[1]], color=(r, g, b))
+
+            ax.scatter(px, py, s=120, marker='s', edgecolors='none', alpha=0.5, c=pz, cmap='jet', vmin=0.0, vmax=1.0)
+            ax.scatter(desired_xs, desired_ys, color='black', label="Reference")
+            ax.scatter(actual_xs_ok, actual_ys_ok, color='green', marker='o', label="Actual (Ok)")
+            ax.scatter(actual_xs_not_ok, actual_ys_not_ok, color='red', marker='o', label="Actual (Not Ok)")
+
+            # ax.imshow(probs, cmap='hot', interpolation='nearest', origin='lower')
+            # hm = ax.pcolor(probs)
+            # plt.colorbar(hm)
+            plt.show()
+
+        ########################################################################
+        # fig, ax = plt.subplots(figsize=(10, 10))
+        # ax.set_title("Discrepancy threshold = {}".format(thresh))
+        # ax.set_xlim([-0.05, 0.35])
+        # ax.set_ylim([-0.20, 0.20])
+        # ax.set_xlabel("$x$ ($m$)")
+        # ax.set_ylabel("$y$ ($m$)")
+        # ax.scatter(desired_xs, desired_ys, color='black', label="Reference")
+        # # ax.scatter(actual_xs, actual_ys, color='red')
+        # ax.scatter(actual_xs_ok, actual_ys_ok, color='green', marker='o', label="Actual (Ok)")
+        # ax.scatter(actual_xs_not_ok, actual_ys_not_ok, color='red', marker='o', label="Actual (Not Ok)")
+        # ax.legend()
+
+        # plt.show()
+        ########################################################################
 
     bag.close()
 
