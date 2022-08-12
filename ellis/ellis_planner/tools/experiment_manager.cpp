@@ -24,7 +24,8 @@ class ExperimentManager {
         tf_listener_(tf_buffer_),
         state_(READY),
         cfg_(&nh_, NODE_CHOREOGRAPHER),
-        control_feedback_history_(100) {}
+        control_feedback_history_(100),
+        waypoint_index_(0) {}
 
   ~ExperimentManager() {}
 
@@ -184,7 +185,7 @@ class ExperimentManager {
   }
 
   void Run() {
-    int waypoint_index = 0;
+    waypoint_index_ = 0;
 
     // Clear any existing execution errors cached from previous experiments.
     std_srvs::Trigger srv;
@@ -197,13 +198,13 @@ class ExperimentManager {
     while (ros::ok()) {
       switch (state_) {
         case READY: {
-          if (waypoint_index < waypoint_.size()) {
-            ROS_INFO_STREAM("Ready to execute waypoint " << waypoint_index + 1 << " of " << waypoint_.size()
+          if (waypoint_index_ < waypoint_.size()) {
+            ROS_INFO_STREAM("Ready to execute waypoint " << waypoint_index_ + 1 << " of " << waypoint_.size()
                                                          << ", press ENTER to continue...");
             std::cin.get();
 
-            const auto& next_waypoint = waypoint_[waypoint_index];
-            const auto& next_planner_type = planner_type_[waypoint_index];
+            const auto& next_waypoint = waypoint_[waypoint_index_];
+            const auto& next_planner_type = planner_type_[waypoint_index_];
 
             // Change to the specified planner.
             cfg_.Set<std::string>("planner", next_planner_type);
@@ -217,7 +218,7 @@ class ExperimentManager {
               ROS_ERROR_STREAM("Move to (" << next_waypoint[0] << ", " << next_waypoint[1] << ", " << next_waypoint[2]
                                            << ") failed!");
             } else {
-              waypoint_index++;
+              waypoint_index_++;
               state_ = MOVING;
             }
           }
@@ -228,9 +229,9 @@ class ExperimentManager {
           break;
         }
         case REPLAN_NEEDED: {
-          const auto& waypoint = waypoint_[waypoint_index - 1];
-          ROS_INFO_STREAM("Replanning to waypoint " << waypoint_index - 1 << ": (" << waypoint[0] << ", " << waypoint[1]
-                                                    << ", " << waypoint[2] << ")");
+          const auto& waypoint = waypoint_[waypoint_index_ - 1];
+          ROS_INFO_STREAM("Replanning to waypoint " << waypoint_index_ - 1 << ": (" << waypoint[0] << ", "
+                                                    << waypoint[1] << ", " << waypoint[2] << ")");
           if (!MoveTo(waypoint[0], waypoint[1], waypoint[2])) {
             ROS_ERROR_STREAM("Move to (" << waypoint[0] << ", " << waypoint[1] << ", " << waypoint[2] << ") failed!");
           } else {
@@ -325,6 +326,24 @@ class ExperimentManager {
     return true;
   }
 
+  bool AtGoal(double goal_dist_tol = 0.15) {
+    int goal_waypoint_index = waypoint_index_ - 1;
+    if (goal_waypoint_index < 0 || goal_waypoint_index >= waypoint_.size()) {
+      ROS_WARN_STREAM("[ExperimentManager] Goal waypoint index " << goal_waypoint_index << " out-of-bounds!");
+      return false;
+    }
+    const auto& goal_waypoint = waypoint_[goal_waypoint_index];
+
+    double curr_x = 0.0, curr_y = 0.0, curr_z = 0.0, curr_yaw = 0.0;
+    if (!GetPose(curr_x, curr_y, curr_z, curr_yaw)) {
+      ROS_WARN_STREAM("[ExperimentManager] Could not check if at goal, because could not get current pose!");
+      return false;
+    }
+
+    double dist = std::sqrt(std::pow(goal_waypoint[0] - curr_x, 2) + std::pow(goal_waypoint[1] - curr_y, 2));
+    return (dist < goal_dist_tol);
+  }
+
   bool ReportExecutionError() {
     int index = -1;
     for (int i = control_feedback_history_.size() - 1; i >= 0; --i) {
@@ -403,8 +422,14 @@ class ExperimentManager {
           case ff_msgs::MotionResult::ALREADY_THERE:
           case ff_msgs::MotionResult::SUCCESS:
           case ff_msgs::MotionResult::PREEMPTED: {
-            // Experiment is done.
-            state_ = READY;
+            if (AtGoal()) {
+              // Experiment is done.
+              ROS_INFO("[ExperimentManager] Experiment is done!");
+              state_ = READY;
+            } else {
+              ROS_WARN("[ExperimentManager] Not done yet! Replanning...");
+              state_ = REPLAN_NEEDED;
+            }
             break;
           }
             // TODO(eratner) What is the difference between POSITION_ENDPOINT and POSITION?
@@ -511,6 +536,7 @@ class ExperimentManager {
   State state_;
   ff_util::ConfigClient cfg_;
   std::vector<std::array<double, 3>> waypoint_;
+  int waypoint_index_;
   std::vector<std::string> planner_type_;
   ros::ServiceClient add_obstacle_client_;
   ros::ServiceClient clear_obstacles_client_;
