@@ -17,6 +17,7 @@ class GPModel:
         }
 
     def cov_func(self, xp, xq):
+        #print("xp = {}, xq = {}".format(xp, xq))
         return (self._params['v1'] * np.exp(
             -0.5 * sum([(xp[d] - xq[d])**2 / self._params['w'][d]**2
                         for d in range(self._params['D'])])))
@@ -25,7 +26,9 @@ class GPModel:
         N = len(inputs)
         assert len(targets) == N, "targets and inputs should have same size!"
 
-        self._training_inputs = inputs
+        # self._training_inputs = inputs
+        self._training_inputs = [x.reshape((self._params['D'], 1))
+                                 for x in inputs]
         self._y = np.array(targets).reshape((N, 1))
 
         self._K = np.zeros((N, N))
@@ -50,6 +53,7 @@ class GPModel:
         N = len(self._training_inputs)
         k = np.zeros((N, 1))
         for i in range(N):
+            #print("xi = {}, x = {}".format(self._training_inputs[i], x))
             k[i, 0] = self.cov_func(
                 self._training_inputs[i], x)
 
@@ -96,28 +100,6 @@ class GPModel:
         return deriv
 
 
-    # def get_first_deriv_k(self, x):
-    #     """
-    #     Returns the D x N matrix of partial derivatives of k with respect
-    #     to the input, evaluated at x, where D = dimension of input, and
-    #     N = # of training inputs.
-    #     """
-    #     N = len(self._training_inputs)
-    #     k = self.get_k(x)
-    #     deriv = np.zeros((self._params['D'], N))
-    #     for i in range(self._params['D']):
-    #         for j in range(N):
-    #             deriv[i, j] = self._params['w'][i] * (
-    #                 self._training_inputs[j][i] - x[i]) * k[j, 0]
-    #     return deriv
-
-    # def get_first_deriv_mean_func(self, x):
-    #     # TODO Do this in train()
-    #     K_inv_y = scipy.linalg.solve(self._K, self._y, sym_pos=True)
-    #     deriv_k = self.get_first_deriv_k(x)
-    #     return deriv_k.dot(K_inv_y)
-
-
 class LinearDynamics:
     def __init__(self, A, B, d):
         self._A = A
@@ -131,6 +113,73 @@ class LinearDynamics:
         return x_next
 
     def predict(self, x_start, us):
+        z_start = np.concatenate([x_start.flatten(), us[0].flatten()])
+        D = len(z_start)
+        D_state = len(x_start)
+
+        z_pred_mean = [z_start.reshape((D, 1))]
+        z_pred_cov = [np.zeros((D, D))]
+
+        A = np.eye(D)
+        A[:D_state, :D_state] = self._A
+        A[:D_state, D_state:] = self._B
+
+        #print("A = {}".format(A))
+
+        for t in range(1, len(us) + 1):
+            #print("***** t = {}".format(t))
+            mean = z_pred_mean[-1]
+            #print("  mean before = {}".format(mean))
+            mean[D_state:, 0] = us[t - 1].flatten()
+            cov = z_pred_cov[-1]
+            #print("  mean = {}, cov = {}".format(mean, cov))
+
+            # Predict the mean.
+            d = np.zeros((D, 1))
+            for i in range(len(self._d)):
+                d[i, 0] = float(self._d[i].mean_func(mean))
+
+            tmp = A.dot(mean)
+            #print("A = {}, mean = {}, A.dot(mean) = {}, d = {}".format(A, mean, tmp, d))
+            next_mean = A.dot(mean) + d
+            #print("next_mean = {}".format(next_mean))
+            z_pred_mean.append(next_mean)
+
+            # Predict the covariance.
+            next_cov = np.zeros((D, D))
+            if t == 1:
+                for i in range(len(self._d)):
+                    #print("mean = {}".format(mean))
+                    next_cov[i, i] = float(self._d[i].var_func(mean))
+            else:
+                next_cov = A.dot(cov.dot(A.T)).reshape((D, D))
+
+                vs = []
+                for d in self._d:
+                    v = float(d.var_func(mean))
+
+                    ddvar = d.get_second_deriv_var_func(mean)
+                    v += (0.5 * np.trace(ddvar.dot(cov)))
+
+                    dmean = d.get_first_deriv_mean_func(mean)
+                    v += (dmean.T.dot(cov.dot(dmean)))
+
+                    vs.append(float(v))
+
+                next_cov += np.diag(vs)
+                # TODO add other terms
+
+            z_pred_cov.append(next_cov)
+
+        #print(z_pred_mean)
+        x_pred_mean = [z[:D_state] for z in z_pred_mean]
+        #print(x_pred_mean)
+        x_pred_cov = [s[:D_state, :D_state] for s in z_pred_cov]
+        return x_pred_mean, x_pred_cov
+
+
+
+    def predict_v0(self, x_start, us):
         D_state = len(x_start)
 
         x_pred_mean = [x_start]
@@ -140,7 +189,7 @@ class LinearDynamics:
             prev_mean = x_pred_mean[-1]
             prev_cov = x_pred_cov[-1]
 
-            print(x_pred_cov)
+            print("mean = {}, cov = {}".format(prev_mean, prev_cov))
 
             # Predict the mean.
             z = np.concatenate([prev_mean.ravel(), u.ravel()])
@@ -182,10 +231,14 @@ class LinearDynamics:
 def test_pred__1d_dyn_sys():
     # TODO Create disturbance model
     d = GPModel()
+    d._params['D'] = 2
     d._params['v0'] = 0.0001
     d._params['v1'] = 0.0001
-    d._params['w'][0] = 0.2
+    d._params['w'] = [0.2, 0.2]
     d.train([np.array([0.65, 0.25])], [0.01])
+    # d.train([np.array([0.65, 0.25]), np.array([0.35, 0.25])], [0.01, 0.025])
+
+
     # d.train([np.array([1.0, 0.25])], [0.01])
     # d.train([np.array([0.65, 0.25]),
     #          np.array([0.70, 0.25])], [0.01, 0.025])
@@ -203,7 +256,9 @@ def test_pred__1d_dyn_sys():
     discrepancy_thresh = 0.05
 
     num_steps = 25
+    # vel = 0.05
     vel = 0.25
+    # vel = 0.35
     us = [np.array([vel]) for i in range(num_steps)]
     ts = [time_step * i for i in range(num_steps + 1)]
     xs_no_dist = [x_start]
@@ -212,7 +267,7 @@ def test_pred__1d_dyn_sys():
         x_next = dyn.step(x, us[i], disturbance=False)
         xs_no_dist.append(x_next)
 
-    ax1.set_title("Trajectory ($a = {}$, $b = {}$)".format(float(A), float(B)))
+    ax1.set_title("Trajectory ($a = {}$, $b = {}$, $u = {}$ m/sec = const.)".format(float(A), float(B), vel))
     ax1.set_xlabel("$t$ (sec)")
     ax1.set_ylabel("$x$ (m)")
 
@@ -226,6 +281,8 @@ def test_pred__1d_dyn_sys():
     ax1.plot(ts, thresh_lower_x, color='blue', linestyle='dashed')
 
     pred_mean, pred_cov = dyn.predict(x_start, us)
+    print(len(ts))
+    print(len(pred_mean))
     ax1.plot(ts, [float(x) for x in pred_mean],
              color='green', label="Prediction (Mean)")
     pred_std_dev_lower = [float(m) - np.sqrt(float(s))
@@ -235,13 +292,12 @@ def test_pred__1d_dyn_sys():
     ax1.fill_between(
         ts, pred_std_dev_lower, pred_std_dev_upper, color='green', alpha=0.1)
 
-    ax1.legend()
+    ax1.legend(loc='upper left')
 
     ############################################################################
     last_pred_mean = pred_mean[-1]
     last_pred_cov = pred_cov[-1]
     last_desired = xs_no_dist[-1]
-    print(last_pred_mean)
 
     num_x_ends = 1000
     x_ends = np.random.multivariate_normal(
@@ -254,37 +310,36 @@ def test_pred__1d_dyn_sys():
             num_x_ends_disc += 1
 
     print("prob disc = {}".format(1.0 * num_x_ends_disc / num_x_ends))
-
-    # prob_bound = 2.0 * np.exp(-(discrepancy_thresh -
-    #                             np.linalg.norm(last_desired - last_pred_mean))**2 /
-    #                           (2.0 * np.trace(last_pred_cov)))
-    # print("prob_bound = {}".format(prob_bound))
     ############################################################################
 
+    test_vel = vel
+    # test_vel = -0.25
     x_range = [-1.1, 3.1]
     step_size = 0.05
     num_x = int((x_range[1] - x_range[0]) / step_size)
-    test_inputs = [[x_range[0] + step_size * i] for i in range(num_x)]
+    test_inputs = [np.array([x_range[0] + step_size * i, test_vel])
+                   for i in range(num_x)]
 
     mean = np.array([float(d.mean_func(x)) for x in test_inputs])
     std_dev = np.array([np.sqrt(float(d.var_func(x))) for x in test_inputs])
 
-    ax2.set_title("Disturbance $d(x, u = {}$ m/sec $)$".format(vel))
+    ax2.set_title("Disturbance $d(x, u = {}$ m/sec $)$".format(test_vel))
     ax2.set_xlabel("$x$ (m)")
     ax2.set_ylabel("$d$")
 
     ax2.set_xlim(x_range)
-    ax2.set_ylim([-0.3, 0.3])
+    ax2.set_ylim([-0.1, 0.1])
 
     ax2.plot([x[0] for x in test_inputs], mean, color='red',
-             label="Mean Disturbance")
+             label="$\mu(x, u = {}$ m/sec $)$".format(test_vel))
     ax2.scatter(
         [x[0] for x in d._training_inputs],
-        d._y, marker='+', s=100, c='black', label="Training")
+        d._y, marker='+', s=100, c='black', label="Observations")
 
     ax2.fill_between(
         [x[0] for x in test_inputs],
-        mean - std_dev, mean + std_dev, color='red', alpha=0.1)
+        mean - std_dev, mean + std_dev, color='red', alpha=0.1,
+        label="$\sigma(x, {}$ m/sec $)$".format(test_vel))
     ax2.legend()
 
     plt.show()
