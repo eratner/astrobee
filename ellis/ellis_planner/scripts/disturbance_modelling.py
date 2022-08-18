@@ -2,6 +2,7 @@ import argparse
 import rosbag
 import matplotlib.pyplot as plt
 import matplotlib as mpl
+from matplotlib.patches import Ellipse
 from mpl_toolkits import mplot3d
 import numpy as np
 import scipy.linalg
@@ -140,7 +141,7 @@ class LinearDynamics:
                 d[i, 0] = float(self._d[i].mean_func(mean))
 
             tmp = A.dot(mean)
-            #print("A = {}, mean = {}, A.dot(mean) = {}, d = {}".format(A, mean, tmp, d))
+            #print("mean = {}, A.dot(mean) = {}, d = {}".format(mean, tmp, d))
             next_mean = A.dot(mean) + d
             #print("next_mean = {}".format(next_mean))
             z_pred_mean.append(next_mean)
@@ -159,12 +160,17 @@ class LinearDynamics:
                     v = float(d.var_func(mean))
 
                     ddvar = d.get_second_deriv_var_func(mean)
+                    #print("ddvar = {}".format(ddvar))
                     v += (0.5 * np.trace(ddvar.dot(cov)))
 
                     dmean = d.get_first_deriv_mean_func(mean)
                     v += (dmean.T.dot(cov.dot(dmean)))
 
                     vs.append(float(v))
+
+                for i in range(D - D_state):
+                    vs.append(0.0)
+                #print(vs)
 
                 next_cov += np.diag(vs)
                 # TODO add other terms
@@ -175,56 +181,6 @@ class LinearDynamics:
         x_pred_mean = [z[:D_state] for z in z_pred_mean]
         #print(x_pred_mean)
         x_pred_cov = [s[:D_state, :D_state] for s in z_pred_cov]
-        return x_pred_mean, x_pred_cov
-
-
-
-    def predict_v0(self, x_start, us):
-        D_state = len(x_start)
-
-        x_pred_mean = [x_start]
-        x_pred_cov = [np.zeros((D_state, D_state))]
-
-        for u in us:
-            prev_mean = x_pred_mean[-1]
-            prev_cov = x_pred_cov[-1]
-
-            print("mean = {}, cov = {}".format(prev_mean, prev_cov))
-
-            # Predict the mean.
-            z = np.concatenate([prev_mean.ravel(), u.ravel()])
-            d_mean = np.array([d.mean_func(z)
-                               for d in self._d]).reshape((D_state, 1))
-            next_mean = self._A.dot(prev_mean) + self._B.dot(u) + d_mean
-            x_pred_mean.append(next_mean)
-
-            # Predict the covariance.
-            next_cov = np.zeros((D_state, D_state))
-            # next_cov = 1e-2 * np.ones((D_state, D_state))
-            if len(x_pred_cov) == 1:
-                next_cov = np.diag([float(d.var_func(z))
-                                    for d in self._d])
-            else:
-                next_cov = self._A.dot(prev_cov.dot(self._A.T)).reshape(
-                    (D_state, D_state))
-
-                vs = []
-                for d in self._d:
-                    v = d.var_func(z)
-
-                    ddvar = d.get_second_deriv_var_func(z)
-                    v += (0.5 * np.trace(ddvar.dot(prev_cov)))
-
-                    dmean = d.get_first_deriv_mean_func(z)
-                    v += (dmean.T.dot(prev_cov.dot(dmean)))
-
-                    vs.append(float(v))
-
-                next_cov += np.diag(vs)
-                # TODO add other terms
-
-            x_pred_cov.append(next_cov)
-
         return x_pred_mean, x_pred_cov
 
 
@@ -378,91 +334,94 @@ def test_pred__1d_gp():
     plt.show()
 
 
-class GP:
-    def __init__(self, inputs=[], targets=[], noise_std_dev=0.01):
-        self._inputs = inputs
-        self._targets = targets
-        self._noise_std_dev = noise_std_dev
+def preprocess_training_data(states, controls, errors):
+    training_inputs = []
+    targets_x = []
+    targets_y = []
 
-    def cov(self, xp, xq, l=1.0, signal_std_dev=1.0):
-        norm = np.linalg.norm(xp - xq)
-        return (signal_std_dev**2 * np.exp(-0.5 * norm**2 / l**2))
+    for x, u, e in zip(states, controls, errors):
+        ok = True
+        for z, ex, ey in zip(training_inputs, targets_x, targets_y):
+            dist = np.linalg.norm(x - z[:2].flatten())
+            #print("x = {}, z = {}, dist = {}".format(x, z[:2].flatten(), dist))
+            if dist < 0.035: # TODO Make a parameter
+                diff_x = abs(-e[0] - ex)
+                diff_y = abs(-e[1] - ey)
+                #print("e = {}, diff_x = {}, diff_y = {}".format(e, diff_x, diff_y))
+                if diff_x < 0.025 and diff_y < 0.025:
+                    ok = False
+                    break
+        if ok:
+            u_normalized = u / np.linalg.norm(u)
+            z = np.concatenate([
+                x.flatten(), u_normalized.flatten()]).reshape((4, 1))
+            training_inputs.append(z)
+            targets_x.append(-e[0])
+            targets_y.append(-e[1])
 
-    def predict(self, test_inputs):
-        n_train = len(self._inputs)
-        n_test = len(test_inputs)
-
-        # Construct covariance matrices
-        K_train = np.zeros((n_train, n_train))
-        for i in range(n_train):
-            for j in range(n_train):
-                K_train[i, j] = self.cov(self._inputs[i], self._inputs[j])
-
-        K_test = np.zeros((n_test, n_test))
-        for i in range(n_test):
-            for j in range(n_test):
-                K_test[i, j] = self.cov(test_inputs[i], test_inputs[j])
-
-        K_train_test = np.zeros((n_train, n_test))
-        for i in range(n_train):
-            for j in range(n_test):
-                K_train_test[i, j] = self.cov(self._inputs[i], test_inputs[j])
-
-        A = K_train + self._noise_std_dev**2 * np.eye(n_train)
-        # print("e-vals of A: {}".format(np.linalg.eigvals(A)))
-        # Define Z = inv(A) * transpose(K_test_train)
-        #         ==> AZ = transpose(K_test_train)
-        Z = scipy.linalg.solve(A, K_train_test, sym_pos=True).T
-
-        y = np.array(self._targets)
-
-        mean = Z.dot(y)
-        cov = K_test - np.dot(Z, K_train_test)
-        # print("e-vals of cov: {}".format(np.linalg.eigvals(cov)))
-
-        return mean, cov
+    return training_inputs, targets_x, targets_y
 
 
-def test_gp_1d():
-    # inputs = [1, 3, 4]
-    # targets = [0.2, -0.2, 0.8]
+def plot_action(ax, dyn, start_state, controls, time_step, discrepancy_thresh):
+    ts = [time_step * i for i in range(len(controls) + 1)]
+    xs_no_dist = [start_state]
+    for i in range(10):
+        x = xs_no_dist[-1]
+        x_next = dyn.step(x, controls[i], disturbance=False)
+        xs_no_dist.append(x_next)
 
-    inputs = [0, 0.05, 0.1, 0.15, 0.2, 3.0]
-    targets = [0.5, 0.55, 0.48, 0.58, 0.52, -0.5]
+    pred_mean, pred_cov = dyn.predict(start_state, controls)
+    print("pred mean = {} cov = {}".format(pred_mean[-1], pred_cov[-1]))
 
-    model = GP(inputs, targets, noise_std_dev=0.05)
+    ########################################################################
+    last_pred_mean = pred_mean[-1]
+    last_pred_cov = pred_cov[-1]
+    last_desired = xs_no_dist[-1]
+    print(len(pred_mean))
+    print(len(xs_no_dist))
 
-    x_range = [-5.1, 5.1]
-    step_size = 0.1
-    num_x = int((x_range[1] - x_range[0]) / step_size)
-    test_inputs = [x_range[0] + step_size * i for i in range(num_x)]
+    num_x_ends = 1000
+    x_ends = np.random.multivariate_normal(
+        mean=last_pred_mean.flatten(), cov=last_pred_cov, size=num_x_ends)
+    num_x_ends_disc = 0
+    for i in range(num_x_ends):
+        x_end = x_ends[i]
+        err = np.linalg.norm(last_desired.flatten() - x_end.flatten())
+        if err > discrepancy_thresh:
+            num_x_ends_disc += 1
 
-    mean, cov = model.predict(test_inputs)
+    prob_disc = 1.0 * num_x_ends_disc / num_x_ends
+    print("prob disc = {}".format(prob_disc))
+    ax.text(last_desired[0], last_desired[1], str(prob_disc), color='red')
+    ########################################################################
 
-    fig, ax = plt.subplots(figsize=(10, 10))
+    # Plot the trajectory w/o disturbances.
+    ax.plot([x[0] for x in xs_no_dist],
+            [x[1] for x in xs_no_dist],
+            color='red', linewidth=2)
+    e = Ellipse(xy=(xs_no_dist[-1][0], xs_no_dist[-1][1]),
+                width=discrepancy_thresh,
+                height=discrepancy_thresh,
+                fill=False, edgecolor='red', linestyle='dashed')
+    ax.add_artist(e)
 
-    ax.set_xlim(x_range)
-    ax.set_ylim([-1.5, 1.5])
-
-    ax.plot(test_inputs, mean, label="Test")
-    ax.scatter(inputs, targets, marker='+', s=100, c='black', label="Training")
-
-    std_dev = np.sqrt(np.diag(cov))
-    ax.fill_between(test_inputs, mean - std_dev, mean + std_dev, color='b', alpha=0.1)
-
-    test_inputs = [0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5]
-    mean, cov = model.predict(test_inputs)
-    y_test = np.random.multivariate_normal(
-        mean=mean, cov=cov, size=1)
-    ax.scatter(test_inputs, y_test, marker='o', c='blue')
-
-    ax.legend()
-    plt.show()
+    ax.plot([x[0] for x in pred_mean],
+            [x[1] for x in pred_mean],
+            color='orange', linewidth=2)
+    for mean, cov in zip(pred_mean, pred_cov):
+        e = Ellipse(xy=(mean[0], mean[1]),
+                    width=2.0 * np.sqrt(cov[0, 0]),
+                    height=2.0 * np.sqrt(cov[1, 1]),
+                    fill=True, facecolor='orange', alpha=0.2,
+                    edgecolor='orange')
+        ax.add_artist(e)
 
 
 def from_bagfile(bagfile):
     thresh = 0.015 # Discrepancy threshold
     max_speed = 0.1 # m/s
+
+    discrepancy_thresh = 0.075
 
     print("Reading from {}...".format(bagfile))
     bag = rosbag.Bag(bagfile)
@@ -512,48 +471,166 @@ def from_bagfile(bagfile):
                    marker='+', s=100, c='black', label="Desired")
         ax.scatter([p.position.x for p in msg.actual_pose],
                    [p.position.y for p in msg.actual_pose],
-                   marker='o', s=100, c='blue', label="Actual")
+                   marker='o', s=100, c='blue', alpha=0.2, label="Actual")
         ax.quiver([s[0] for s in states],
                   [s[1] for s in states],
                   [-e[0] for e in errors],
-                  [-e[1] for e in errors], color='red', label="Disturbance")
+                  [-e[1] for e in errors], color='red', alpha=0.2, label="Disturbance")
 
+
+        # normalized_controls = [u / np.linalg.norm(u) for u in controls]
+        # print("normalized_ctls = {}".format(normalized_controls))
+
+        print("Before preprocessing: num states: {}".format(len(states)))
+        training_inputs, targets_x, targets_y = \
+            preprocess_training_data(states, controls, errors)
+        print("After preprocessing: num inputs: {}".format(len(training_inputs)))
+
+        ax.scatter([z[0] for z in training_inputs],
+                   [z[1] for z in training_inputs],
+                   marker='+', s=150, c='green', label="Training Input ($x$)")
+        u_scale = 0.1
+        ax.quiver([z[0] for z in training_inputs],
+                  [z[1] for z in training_inputs],
+                  [u_scale * z[2] for z in training_inputs],
+                  [u_scale * z[3] for z in training_inputs],
+                  color='green', alpha=0.5, label="Training Input ($\hat{u}$)")
+
+        # ax.legend()
+        # plt.show()
+
+        # Model of disturbance along the x-position.
+        disturbance_x = GPModel()
+        disturbance_x._params['D'] = 4
+        disturbance_x._params['v0'] = 1e-4
+        disturbance_x._params['v1'] = 1e-4 # 5e-4 # 0.1 # 1.0 # 1e-4
+        disturbance_x._params['w'] = [0.25, 0.25, 0.75, 0.75] # [0.4, 0.4, 0.4, 0.4]
+        disturbance_x.train(training_inputs, targets_x)
+
+        # Model of disturbance along the y-position.
+        disturbance_y = GPModel()
+        disturbance_y._params['D'] = 4
+        disturbance_y._params['v0'] = 1e-4
+        disturbance_y._params['v1'] = 1e-4 #5e-4 # 0.1 # 1.0 # 1e-4
+        disturbance_y._params['w'] = [0.25, 0.25, 0.75, 0.75] # [0.4, 0.4, 0.4, 0.4]
+        disturbance_y.train(training_inputs, targets_y)
+
+        # Dynamics.
+        time_step = 0.1
+        A = np.eye(2)
+        B = time_step * np.eye(2)
+        dyn = LinearDynamics(A, B, [disturbance_x, disturbance_y])
+
+        # TODO Fwd sim different actions
+        # start_state = np.array([-0.2, 0.35]).reshape((2, 1))
+        # start_state = np.array([-0.3, 0.35]).reshape((2, 1))
+        # start_state = np.array([-0.4, 0.35]).reshape((2, 1))
+        # start_state = np.array([-0.2, 0.35]).reshape((2, 1))
+        # start_state = np.array([-0.1, 0.30]).reshape((2, 1))
+        # start_state = np.array([-0.1, 0.25]).reshape((2, 1))
+        start_state = np.array([0, 0.2]).reshape((2, 1))
+        controls_move_pos_x = [np.array([0.1, 0.0]).reshape((2, 1))
+                               for i in range(10)]
+        controls_move_neg_x = [np.array([-0.1, 0.0]).reshape((2, 1))
+                               for i in range(10)]
+        controls_move_pos_y = [np.array([0.0, 0.1]).reshape((2, 1))
+                               for i in range(10)]
+        controls_move_neg_y = [np.array([0.0, -0.1]).reshape((2, 1))
+                               for i in range(10)]
+
+        actions = [controls_move_pos_x,
+                   controls_move_neg_x,
+                   controls_move_pos_y,
+                   controls_move_neg_y]
+        for a in actions:
+            plot_action(
+                ax, dyn, start_state, a, time_step, discrepancy_thresh)
+
+        # controls_move_pos_x = [np.array([0.0, -0.1]).reshape((2, 1))
+        #                        for i in range(10)]
+        # ts = [time_step * i for i in range(11)]
+        # xs_no_dist = [x_start]
+        # for i in range(10):
+        #     x = xs_no_dist[-1]
+        #     x_next = dyn.step(x, controls_move_pos_x[i], disturbance=False)
+        #     xs_no_dist.append(x_next)
+
+        # pred_mean, pred_cov = dyn.predict(x_start, controls_move_pos_x)
+        # print("pred mean = {} cov = {}".format(pred_mean[-1], pred_cov[-1]))
+
+        # ########################################################################
+        # last_pred_mean = pred_mean[-1]
+        # last_pred_cov = pred_cov[-1]
+        # last_desired = xs_no_dist[-1]
+        # print(len(pred_mean))
+        # print(len(xs_no_dist))
+
+        # num_x_ends = 1000
+        # x_ends = np.random.multivariate_normal(
+        #     mean=last_pred_mean.flatten(), cov=last_pred_cov, size=num_x_ends)
+        # num_x_ends_disc = 0
+        # for i in range(num_x_ends):
+        #     x_end = x_ends[i]
+        #     err = np.linalg.norm(last_desired.flatten() - x_end.flatten())
+        #     if err > discrepancy_thresh:
+        #         num_x_ends_disc += 1
+
+        # print("prob disc = {}".format(1.0 * num_x_ends_disc / num_x_ends))
+        ########################################################################
+
+        # # Plot the trajectory w/o disturbances.
+        # ax.plot([x[0] for x in xs_no_dist],
+        #         [x[1] for x in xs_no_dist],
+        #         color='red', linewidth=2)
+        # e = Ellipse(xy=(xs_no_dist[-1][0], xs_no_dist[-1][1]),
+        #             width=discrepancy_thresh,
+        #             height=discrepancy_thresh,
+        #             fill=False, edgecolor='red', linestyle='dashed')
+        # ax.add_artist(e)
+
+        # thresh_1 = []
+        # thresh_2 = []
+        # for i in range(len(xs_no_dist) - 1):
+        #     r = xs_no_dist[i + 1] - xs_no_dist[i]
+        #     r /= np.linalg.norm(r)
+
+        #     r_perp_1 = np.array([-r[1], r[0]])
+        #     r_perp_2 = np.array([r[1], -r[0]])
+
+        #     thresh_1.append(xs_no_dist[i] + discrepancy_thresh * r_perp_1)
+        #     thresh_2.append(xs_no_dist[i] + discrepancy_thresh * r_perp_2)
+
+        # ax.plot([x[0] for x in thresh_1],
+        #         [x[1] for x in thresh_1],
+        #         color='red', linestyle='dashed')
+        # ax.plot([x[0] for x in thresh_2],
+        #         [x[1] for x in thresh_2],
+        #         color='red', linestyle='dashed')
+
+        # ax.plot([x[0] for x in pred_mean],
+        #         [x[1] for x in pred_mean],
+        #         color='orange', linewidth=2)
+        # for mean, cov in zip(pred_mean, pred_cov):
+        #     e = Ellipse(xy=(mean[0], mean[1]),
+        #                 width=2.0 * np.sqrt(cov[0, 0]),
+        #                 height=2.0 * np.sqrt(cov[1, 1]),
+        #                 fill=True, facecolor='orange', alpha=0.2,
+        #                 edgecolor='orange')
+        #     # e.set_facecolor('none')
+        #     ax.add_artist(e)
+        # TODO Plot std dev of prediction (how to do?)
         ax.legend()
         plt.show()
 
-        normalized_controls = [u / np.linalg.norm(u) for u in controls]
-        print("normalized_ctls = {}".format(normalized_controls))
+        # training_inputs = [np.concatenate([x, u])
+        #                    for x, u in zip(states, normalized_controls)]
+        # targets_x = [-e[0] for e in errors]
+        # targets_y = [-e[1] for e in errors]
 
-        training_inputs = [np.concatenate([x, u])
-                           for x, u in zip(states, normalized_controls)]
-        targets_x = [-e[0] for e in errors]
-        targets_y = [-e[1] for e in errors]
-
-        dist_x_model = GP(
-            training_inputs, targets_x, noise_std_dev=0.1)
-        dist_y_model = GP(
-            training_inputs, targets_y, noise_std_dev=0.1)
-
-        sim_end_pos = fwd_sim_OL(
-            np.array([10, 10]),            # start
-            np.array([10.1, 10]),          # end
-            [dist_x_model, dist_y_model],
-        )
-        print(sim_end_pos)
-
-        sim_end_pos = fwd_sim_OL(
-            np.array([0, 0]),            # start
-            np.array([0.1, 0]),          # end
-            [dist_x_model, dist_y_model],
-        )
-        print(sim_end_pos)
-
-        sim_end_pos = fwd_sim_OL(
-            np.array([-0.25, 0.35]),      # start
-            np.array([-0.15, 0.35]),      # end
-            [dist_x_model, dist_y_model],
-        )
-        print(sim_end_pos)
+        # dist_x_model = GP(
+        #     training_inputs, targets_x, noise_std_dev=0.1)
+        # dist_y_model = GP(
+        #     training_inputs, targets_y, noise_std_dev=0.1)
 
         ########################################################################
         # test_inputs = []
@@ -596,87 +673,12 @@ def from_bagfile(bagfile):
         ########################################################################
 
 
-def fwd_sim_OL(start_pos, end_pos, dist_model, max_speed=0.1, time_step=0.2):
-    ctls = []
-
-    # Generate (open-loop) sequence of controls.
-    dist = np.linalg.norm(end_pos - start_pos)
-    step_size = max_speed * time_step
-    num_steps = int(dist / step_size) + 1
-    pos = start_pos
-    for i in range(num_steps):
-        to_end = end_pos - pos
-        dist = np.linalg.norm(to_end)
-        u = np.array([0, 0])
-        if dist < step_size:
-            u = to_end
-        else:
-            u = max_speed * to_end / dist
-        ctls.append(u)
-
-    thresh = 0.05
-    grid_size = 0.01
-    u_dir = (end_pos - start_pos) / np.linalg.norm(end_pos - start_pos)
-    print("u_dir = {}".format(u_dir))
-    px_range = [start_pos[0] - thresh, end_pos[0] + thresh]
-    py_range = [start_pos[1] - thresh, end_pos[1] + thresh]
-    num_px = int((px_range[1] - px_range[0]) / grid_size)
-    num_py = int((py_range[1] - py_range[0]) / grid_size)
-    grid = num_px * [num_py * [(0.0, 0.0)]]
-
-    test_inputs = []
-    for i in range(num_px):
-        px = px_range[0] + i * grid_size
-        for j in range(num_py):
-            py = py_range[0] + j * grid_size
-            z = np.array([px, py, u_dir[0], u_dir[1]])
-            test_inputs.append(z)
-    mean_x, cov_x = dist_model[0].predict(test_inputs)
-    cov_x += (1e-6 * np.eye(len(test_inputs)))
-    dx = np.random.multivariate_normal(
-        mean=mean_x, cov=cov_x, size=1).flatten()
-    mean_y, cov_y = dist_model[1].predict(test_inputs)
-    cov_y += (1e-6 * np.eye(len(test_inputs)))
-    dy = np.random.multivariate_normal(
-        mean=mean_y, cov=cov_y, size=1).flatten()
-
-    ############################################################################
-    fig, ax = plt.subplots(figsize=(10, 10))
-    ax.quiver([z[0] for z in test_inputs],
-              [z[1] for z in test_inputs],
-              dx, dy, color='red', label="Disturbance")
-    ax.legend()
-    plt.show()
-    ############################################################################
-
-    for i in range(num_px):
-        for j in range(num_py):
-            idx = i * num_py + j
-            grid[i][j] = (dx[idx], dy[idx])
-
-    # Forward simulate.
-    pos = start_pos
-    for u in ctls:
-        print("fwd sim x: {}, u: {}".format(pos, u))
-        # Get the sampled disturbance.
-        i = int((pos[0] - px_range[0]) / grid_size)
-        j = int((pos[1] - py_range[0]) / grid_size)
-        d = np.array([0, 0])
-        if i >= 0 and i < num_px and j >= 0 and j < num_py:
-            d = np.array(grid[i][j])
-        print("  d = {}".format(d))
-
-        pos = pos + time_step * u + d
-
-    return pos
-
 if __name__ == '__main__':
-    test_pred__1d_dyn_sys()
+    # test_pred__1d_dyn_sys()
     # test_pred__1d_gp()
-    # test_gp_1d()
 
-    # parser = argparse.ArgumentParser()
-    # parser.add_argument("bag")
-    # args = parser.parse_args()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("bag")
+    args = parser.parse_args()
 
-    # from_bagfile(args.bag)
+    from_bagfile(args.bag)
