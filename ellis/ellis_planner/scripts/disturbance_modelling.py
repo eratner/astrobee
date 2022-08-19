@@ -185,7 +185,6 @@ class LinearDynamics:
 
 
 def test_pred__1d_dyn_sys():
-    # TODO Create disturbance model
     d = GPModel()
     d._params['D'] = 2
     d._params['v0'] = 0.0001
@@ -237,8 +236,10 @@ def test_pred__1d_dyn_sys():
     ax1.plot(ts, thresh_lower_x, color='blue', linestyle='dashed')
 
     pred_mean, pred_cov = dyn.predict(x_start, us)
-    print(len(ts))
-    print(len(pred_mean))
+
+    for t, m, v in zip(ts, pred_mean, pred_cov):
+        print("t: {}, mean: {}, cov: {}".format(t, m, v))
+
     ax1.plot(ts, [float(x) for x in pred_mean],
              color='green', label="Prediction (Mean)")
     pred_std_dev_lower = [float(m) - np.sqrt(float(s))
@@ -573,8 +574,8 @@ def from_bagfile(bagfile):
 
 
 if __name__ == '__main__':
-    # test_pred__1d_dyn_sys()
-    test_pred__1d_gp()
+    test_pred__1d_dyn_sys()
+    # test_pred__1d_gp()
 
     # parser = argparse.ArgumentParser()
     # parser.add_argument("bag")

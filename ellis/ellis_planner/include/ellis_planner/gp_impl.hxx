@@ -20,25 +20,30 @@ GP<InputDim>::~GP() {}
 template <unsigned int InputDim>
 void GP<InputDim>::Reset() {
   training_inputs_.clear();
+  training_targets_.clear();
 }
 
 template <unsigned int InputDim>
 void GP<InputDim>::Train(const std::vector<InputVec>& inputs, const std::vector<double>& targets) {
   // TODO(eratner) Refactor below to allow for ADDING training data, rather than overwriting it
   // Store the training inputs and targets.
-  training_inputs_ = inputs;
-  y_ = Eigen::VectorXd::Zero(targets.size());
-  for (unsigned int i = 0; i < targets.size(); ++i) y_(i) = targets[i];
+  training_inputs_.insert(training_inputs_.end(), inputs.begin(), inputs.end());
+  training_targets_.insert(training_targets_.end(), targets.begin(), targets.end());
+
+  y_ = Eigen::VectorXd::Zero(training_targets_.size());
+  for (unsigned int i = 0; i < training_targets_.size(); ++i) {
+    y_(i) = training_targets_[i];
+  }
 
   // Compute the covariance matrix of the inputs.
-  K_ = Eigen::MatrixXd::Zero(inputs.size(), inputs.size());
-  for (unsigned int i = 0; i < inputs.size(); ++i) {
-    for (unsigned int j = 0; j < inputs.size(); ++j) {
-      K_(i, j) = CovFunc(inputs[i], inputs[j]);
+  K_ = Eigen::MatrixXd::Zero(training_inputs_.size(), training_inputs_.size());
+  for (unsigned int i = 0; i < training_inputs_.size(); ++i) {
+    for (unsigned int j = 0; j < training_inputs_.size(); ++j) {
+      K_(i, j) = CovFunc(training_inputs_[i], training_inputs_[j]);
     }
   }
 
-  K_ += (params_.v0_ * Eigen::MatrixXd::Identity(inputs.size(), inputs.size()));
+  K_ += (params_.v0_ * Eigen::MatrixXd::Identity(training_inputs_.size(), training_inputs_.size()));
 
   // Compute the Cholesky decomposition of the matrix (for later use).
   K_decomp_ = K_.llt();
@@ -120,6 +125,11 @@ Eigen::Matrix<double, InputDim, InputDim> GP<InputDim>::GetSecondDerivOfVarFunc(
   }
 
   return deriv;
+}
+
+template <unsigned int InputDim>
+typename GP<InputDim>::Parameters& GP<InputDim>::GetParameters() {
+  return params_;
 }
 
 }  // namespace ellis_planner

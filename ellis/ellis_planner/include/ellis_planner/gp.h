@@ -2,10 +2,10 @@
 #ifndef ELLIS_PLANNER_GP_H_
 #define ELLIS_PLANNER_GP_H_
 
-#include <array>
-#include <vector>
 #include <Eigen/Dense>
 #include <Eigen/Cholesky>
+#include <array>
+#include <vector>
 #include <cmath>
 #include <iostream>
 
@@ -44,10 +44,13 @@ class GP {
 
   Eigen::Matrix<double, InputDim, InputDim> GetSecondDerivOfVarFunc(const InputVec& x) const;
 
+  Parameters &GetParameters();
+
  private:
   Parameters params_;
 
   std::vector<InputVec> training_inputs_;
+  std::vector<double> training_targets_;
   Eigen::VectorXd y_;
   Eigen::MatrixXd K_;
   Eigen::LLT<Eigen::MatrixXd> K_decomp_;
@@ -56,6 +59,6 @@ class GP {
 
 }  // namespace ellis_planner
 
-#include <ellis_planner/gp_impl.h>
+#include "ellis_planner/gp_impl.hxx"
 
 #endif  // ELLIS_PLANNER_GP_H_
