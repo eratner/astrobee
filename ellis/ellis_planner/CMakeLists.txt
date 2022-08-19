@@ -66,6 +66,7 @@ add_library(ellis_planner
   src/search.cpp
   src/collision_object.cpp
   src/rectangle_collision_object.cpp
+  src/discrepancy_classifier.cpp
 )
 add_dependencies(ellis_planner ${catkin_EXPORTED_TARGETS})
 target_link_libraries(ellis_planner ${catkin_LIBRARIES} ${PCL_LIBRARIES})
@@ -80,6 +81,10 @@ install(CODE "execute_process(
   OUTPUT_QUIET
   ERROR_QUIET
   )")
+
+add_executable(test_gp tools/test_gp.cpp)
+add_dependencies(test_gp ${catkin_EXPORTED_TARGETS} ellis_planner)
+target_link_libraries(test_gp ${catkin_LIBRARIES} ${PCL_LIBRARIES} ellis_planner)
 
 install(DIRECTORY launch/
   DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}/launch

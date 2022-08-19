@@ -302,7 +302,9 @@ def test_pred__1d_dyn_sys():
 
 
 def test_pred__1d_gp():
-    inputs = [[1], [3], [4]]
+    inputs = [np.array([1]).reshape((1, 1)),
+              np.array([3]).reshape((1, 1)),
+              np.array([4]).reshape((1, 1))]
     targets = [0.2, -0.2, 0.8]
 
     model = GPModel()
@@ -315,6 +317,10 @@ def test_pred__1d_gp():
 
     mean = np.array([float(model.mean_func(x)) for x in test_inputs])
     std_dev = np.array([np.sqrt(float(model.var_func(x))) for x in test_inputs])
+
+    for x, m, s in zip(test_inputs, mean, std_dev):
+        print("x: {}, mean: {}, std dev: {}, deriv mean: {} dderiv var: {}".format(
+            x[0], m, s, model.get_first_deriv_mean_func(x).flatten(), model.get_second_deriv_var_func(x).flatten()))
 
     fig, ax = plt.subplots(figsize=(10, 10))
 
@@ -339,12 +345,13 @@ def preprocess_training_data(states, controls, errors):
     targets_x = []
     targets_y = []
 
-    for x, u, e in zip(states, controls, errors):
+    for x, u, e in zip(states[10:], controls[10:], errors[10:]):
         ok = True
         for z, ex, ey in zip(training_inputs, targets_x, targets_y):
             dist = np.linalg.norm(x - z[:2].flatten())
             #print("x = {}, z = {}, dist = {}".format(x, z[:2].flatten(), dist))
-            if dist < 0.035: # TODO Make a parameter
+            # if dist < 0.035: # TODO Make a parameter
+            if dist < 0.001:
                 diff_x = abs(-e[0] - ex)
                 diff_y = abs(-e[1] - ey)
                 #print("e = {}, diff_x = {}, diff_y = {}".format(e, diff_x, diff_y))
@@ -477,10 +484,6 @@ def from_bagfile(bagfile):
                   [-e[0] for e in errors],
                   [-e[1] for e in errors], color='red', alpha=0.2, label="Disturbance")
 
-
-        # normalized_controls = [u / np.linalg.norm(u) for u in controls]
-        # print("normalized_ctls = {}".format(normalized_controls))
-
         print("Before preprocessing: num states: {}".format(len(states)))
         training_inputs, targets_x, targets_y = \
             preprocess_training_data(states, controls, errors)
@@ -504,7 +507,8 @@ def from_bagfile(bagfile):
         disturbance_x._params['D'] = 4
         disturbance_x._params['v0'] = 1e-4
         disturbance_x._params['v1'] = 1e-4 # 5e-4 # 0.1 # 1.0 # 1e-4
-        disturbance_x._params['w'] = [0.25, 0.25, 0.75, 0.75] # [0.4, 0.4, 0.4, 0.4]
+        # disturbance_x._params['w'] = [0.25, 0.25, 0.75, 0.75] # [0.4, 0.4, 0.4, 0.4]
+        disturbance_x._params['w'] = [0.1, 0.1, 0.8, 0.8]
         disturbance_x.train(training_inputs, targets_x)
 
         # Model of disturbance along the y-position.
@@ -512,7 +516,8 @@ def from_bagfile(bagfile):
         disturbance_y._params['D'] = 4
         disturbance_y._params['v0'] = 1e-4
         disturbance_y._params['v1'] = 1e-4 #5e-4 # 0.1 # 1.0 # 1e-4
-        disturbance_y._params['w'] = [0.25, 0.25, 0.75, 0.75] # [0.4, 0.4, 0.4, 0.4]
+        # disturbance_y._params['w'] = [0.25, 0.25, 0.75, 0.75] # [0.4, 0.4, 0.4, 0.4]
+        disturbance_y._params['w'] = [0.1, 0.1, 0.8, 0.8]
         disturbance_y.train(training_inputs, targets_y)
 
         # Dynamics.
@@ -523,12 +528,12 @@ def from_bagfile(bagfile):
 
         # TODO Fwd sim different actions
         # start_state = np.array([-0.2, 0.35]).reshape((2, 1))
+        # start_state = np.array([-0.2, 0.45]).reshape((2, 1))
         # start_state = np.array([-0.3, 0.35]).reshape((2, 1))
         # start_state = np.array([-0.4, 0.35]).reshape((2, 1))
-        # start_state = np.array([-0.2, 0.35]).reshape((2, 1))
-        # start_state = np.array([-0.1, 0.30]).reshape((2, 1))
+        start_state = np.array([-0.1, 0.30]).reshape((2, 1))
         # start_state = np.array([-0.1, 0.25]).reshape((2, 1))
-        start_state = np.array([0, 0.2]).reshape((2, 1))
+        # start_state = np.array([0, 0.2]).reshape((2, 1))
         controls_move_pos_x = [np.array([0.1, 0.0]).reshape((2, 1))
                                for i in range(10)]
         controls_move_neg_x = [np.array([-0.1, 0.0]).reshape((2, 1))
@@ -546,117 +551,11 @@ def from_bagfile(bagfile):
             plot_action(
                 ax, dyn, start_state, a, time_step, discrepancy_thresh)
 
-        # controls_move_pos_x = [np.array([0.0, -0.1]).reshape((2, 1))
-        #                        for i in range(10)]
-        # ts = [time_step * i for i in range(11)]
-        # xs_no_dist = [x_start]
-        # for i in range(10):
-        #     x = xs_no_dist[-1]
-        #     x_next = dyn.step(x, controls_move_pos_x[i], disturbance=False)
-        #     xs_no_dist.append(x_next)
-
-        # pred_mean, pred_cov = dyn.predict(x_start, controls_move_pos_x)
-        # print("pred mean = {} cov = {}".format(pred_mean[-1], pred_cov[-1]))
-
-        # ########################################################################
-        # last_pred_mean = pred_mean[-1]
-        # last_pred_cov = pred_cov[-1]
-        # last_desired = xs_no_dist[-1]
-        # print(len(pred_mean))
-        # print(len(xs_no_dist))
-
-        # num_x_ends = 1000
-        # x_ends = np.random.multivariate_normal(
-        #     mean=last_pred_mean.flatten(), cov=last_pred_cov, size=num_x_ends)
-        # num_x_ends_disc = 0
-        # for i in range(num_x_ends):
-        #     x_end = x_ends[i]
-        #     err = np.linalg.norm(last_desired.flatten() - x_end.flatten())
-        #     if err > discrepancy_thresh:
-        #         num_x_ends_disc += 1
-
-        # print("prob disc = {}".format(1.0 * num_x_ends_disc / num_x_ends))
-        ########################################################################
-
-        # # Plot the trajectory w/o disturbances.
-        # ax.plot([x[0] for x in xs_no_dist],
-        #         [x[1] for x in xs_no_dist],
-        #         color='red', linewidth=2)
-        # e = Ellipse(xy=(xs_no_dist[-1][0], xs_no_dist[-1][1]),
-        #             width=discrepancy_thresh,
-        #             height=discrepancy_thresh,
-        #             fill=False, edgecolor='red', linestyle='dashed')
-        # ax.add_artist(e)
-
-        # thresh_1 = []
-        # thresh_2 = []
-        # for i in range(len(xs_no_dist) - 1):
-        #     r = xs_no_dist[i + 1] - xs_no_dist[i]
-        #     r /= np.linalg.norm(r)
-
-        #     r_perp_1 = np.array([-r[1], r[0]])
-        #     r_perp_2 = np.array([r[1], -r[0]])
-
-        #     thresh_1.append(xs_no_dist[i] + discrepancy_thresh * r_perp_1)
-        #     thresh_2.append(xs_no_dist[i] + discrepancy_thresh * r_perp_2)
-
-        # ax.plot([x[0] for x in thresh_1],
-        #         [x[1] for x in thresh_1],
-        #         color='red', linestyle='dashed')
-        # ax.plot([x[0] for x in thresh_2],
-        #         [x[1] for x in thresh_2],
-        #         color='red', linestyle='dashed')
-
-        # ax.plot([x[0] for x in pred_mean],
-        #         [x[1] for x in pred_mean],
-        #         color='orange', linewidth=2)
-        # for mean, cov in zip(pred_mean, pred_cov):
-        #     e = Ellipse(xy=(mean[0], mean[1]),
-        #                 width=2.0 * np.sqrt(cov[0, 0]),
-        #                 height=2.0 * np.sqrt(cov[1, 1]),
-        #                 fill=True, facecolor='orange', alpha=0.2,
-        #                 edgecolor='orange')
-        #     # e.set_facecolor('none')
-        #     ax.add_artist(e)
-        # TODO Plot std dev of prediction (how to do?)
         ax.legend()
         plt.show()
 
-        # training_inputs = [np.concatenate([x, u])
-        #                    for x, u in zip(states, normalized_controls)]
-        # targets_x = [-e[0] for e in errors]
-        # targets_y = [-e[1] for e in errors]
-
-        # dist_x_model = GP(
-        #     training_inputs, targets_x, noise_std_dev=0.1)
-        # dist_y_model = GP(
-        #     training_inputs, targets_y, noise_std_dev=0.1)
-
         ########################################################################
-        # test_inputs = []
-
-        # # px_range = [-0.2, 0.0]
-        # # py_range = [0.2, 0.35]
-
-        # # px_range = [-0.4, 0.4]
-        # # py_range = [-0.4, 0.4]
-
-        # px_range = [-0.2, 0]
-        # py_range = [-0.2, 0.4]
-
-        # # step_size = 0.05
-        # step_size = 0.01
-        # num_px = int((px_range[1] - px_range[0]) / step_size)
-        # num_py = int((py_range[1] - py_range[0]) / step_size)
-        # for i in range(num_px):
-        #     px = px_range[0] + step_size * i
-        #     for j in range(num_py):
-        #         py = py_range[0] + step_size * j
-        #         z = np.array([px, py, 0.0, 1.0])
-        #         test_inputs.append(z)
-
-        # mean, cov = dist_y_model.predict(test_inputs)
-
+        # TODO Any use for a 3D plot showing mean errors?
         # fig = plt.figure()
         # ax = plt.axes(projection='3d')
         # ax.scatter3D(
@@ -675,10 +574,10 @@ def from_bagfile(bagfile):
 
 if __name__ == '__main__':
     # test_pred__1d_dyn_sys()
-    # test_pred__1d_gp()
+    test_pred__1d_gp()
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument("bag")
-    args = parser.parse_args()
+    # parser = argparse.ArgumentParser()
+    # parser.add_argument("bag")
+    # args = parser.parse_args()
 
-    from_bagfile(args.bag)
+    # from_bagfile(args.bag)
