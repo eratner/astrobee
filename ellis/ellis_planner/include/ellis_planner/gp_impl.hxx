@@ -1,6 +1,8 @@
 // Copyright 2022 Ellis Ratner (eratner@berkeley.edu)
-#ifndef ELLIS_PLANNER_GP_IMPL_H_
-#define ELLIS_PLANNER_GP_IMPL_H_
+#ifndef ELLIS_PLANNER_GP_IMPL_HXX_
+#define ELLIS_PLANNER_GP_IMPL_HXX_
+
+#include <vector>
 
 namespace ellis_planner {
 
@@ -122,4 +124,4 @@ Eigen::Matrix<double, InputDim, InputDim> GP<InputDim>::GetSecondDerivOfVarFunc(
 
 }  // namespace ellis_planner
 
-#endif  // ELLIS_PLANNER_GP_IMPL_H_
+#endif  // ELLIS_PLANNER_GP_IMPL_HXX_
