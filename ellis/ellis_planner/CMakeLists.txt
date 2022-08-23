@@ -66,9 +66,8 @@ add_library(ellis_planner
   src/search.cpp
   src/collision_object.cpp
   src/rectangle_collision_object.cpp
-  src/discrepancy_classifier.cpp
 )
-add_dependencies(ellis_planner ${catkin_EXPORTED_TARGETS})
+add_dependencies(ellis_planner ${catkin_EXPORTED_TARGETS} ${PROJECT_NAME}_generate_messages_cpp)
 target_link_libraries(ellis_planner ${catkin_LIBRARIES} ${PCL_LIBRARIES})
 
 add_executable(exp tools/experiment_manager.cpp)

@@ -85,6 +85,14 @@ bool PlannerInterface::InitializePlanner(ros::NodeHandle* nh) {
   NODELET_ERROR_STREAM("Loaded " << env_.GetActions().size() << " actions: ");
   for (const auto& action : env_.GetActions()) NODELET_ERROR_STREAM("  " << action);
 
+  // Planner goal tolerances.
+  env_.SetGoalPosTol(cfg_.Get<double>("goal_pos_tol"));
+  env_.SetGoalAngTol(cfg_.Get<double>("goal_ang_tol"));
+
+  // Robot's collision bounding box size.
+  env_.GetRobotCollisionObject()->SetSizeX(cfg_.Get<double>("robot_collision_size_x"));
+  env_.GetRobotCollisionObject()->SetSizeY(cfg_.Get<double>("robot_collision_size_y"));
+
   env_.SetExecutionErrorNeighborhoodParameters(Environment::ExecutionErrorNeighborhoodParameters(
     cfg_.Get<double>("exec_error_state_radius_pos"), cfg_.Get<double>("exec_error_state_radius_yaw"),
     cfg_.Get<double>("exec_error_action_radius"), cfg_.Get<double>("exec_error_penalty")));
@@ -128,11 +136,41 @@ bool PlannerInterface::ReconfigureCallback(dynamic_reconfigure::Config& config) 
   env_.SetUseWeightedPenalty(cfg_.Get<bool>("use_weighted_penalty"));
   env_.SetUseControlLevelPenalty(cfg_.Get<bool>("use_control_level_penalty"));
 
+  // Planner goal tolerances.
+  env_.SetGoalPosTol(cfg_.Get<double>("goal_pos_tol"));
+  env_.SetGoalAngTol(cfg_.Get<double>("goal_ang_tol"));
+
+  // Robot's collision bounding box size.
+  env_.GetRobotCollisionObject()->SetSizeX(cfg_.Get<double>("robot_collision_size_x"));
+  env_.GetRobotCollisionObject()->SetSizeY(cfg_.Get<double>("robot_collision_size_y"));
+
   return true;
 }
 
 void PlannerInterface::PlanCallback(const ff_msgs::PlanGoal& goal) {
   NODELET_DEBUG("Received new planning request!");
+
+  auto collision_obj = env_.GetRobotCollisionObject();
+  if (collision_obj) {
+    auto collision_msg = collision_obj->GetMarker();
+    collision_msg.header.frame_id = std::string(FRAME_NAME_BODY);
+    collision_msg.ns = "/mob/ellis_planner/robot_collision";
+    collision_msg.id = 0;
+    collision_msg.pose.position.x = 0;
+    collision_msg.pose.position.y = 0;
+    collision_msg.pose.position.z = 0;
+    collision_msg.pose.orientation.x = 0;
+    collision_msg.pose.orientation.y = 0;
+    collision_msg.pose.orientation.z = 0;
+    collision_msg.pose.orientation.w = 1;
+    collision_msg.color.r = 0;
+    collision_msg.color.g = 0;
+    collision_msg.color.b = 1;
+    collision_msg.color.a = 0.2;
+    NODELET_ERROR_STREAM("Showing robot collision bounding box of size (" << collision_obj->GetSizeX() << ", "
+                                                                          << collision_obj->GetSizeY() << ")");
+    vis_pub_.publish(collision_msg);
+  }
 
   ScopedPublish<PlanningInfo> info_pub(&planning_info_pub_);
   info_pub.msg_.success = false;

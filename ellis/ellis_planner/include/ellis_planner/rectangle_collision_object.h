@@ -38,6 +38,14 @@ class RectangleCollisionObject : public CollisionObject {
 
   void SetYaw(double yaw);
 
+  double GetSizeX() const;
+
+  void SetSizeX(double size_x);
+
+  double GetSizeY() const;
+
+  void SetSizeY(double size_y);
+
  private:
   double x_;
   double y_;

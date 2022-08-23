@@ -98,4 +98,12 @@ double RectangleCollisionObject::GetYaw() const { return yaw_; }
 
 void RectangleCollisionObject::SetYaw(double yaw) { yaw_ = yaw; }
 
+double RectangleCollisionObject::GetSizeX() const { return size_x_; }
+
+void RectangleCollisionObject::SetSizeX(double size_x) { size_x_ = size_x; }
+
+double RectangleCollisionObject::GetSizeY() const { return size_y_; }
+
+void RectangleCollisionObject::SetSizeY(double size_y) { size_y_ = size_y; }
+
 }  // namespace ellis_planner
