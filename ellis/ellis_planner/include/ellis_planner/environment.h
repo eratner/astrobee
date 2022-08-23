@@ -150,6 +150,10 @@ class Environment {
 
   void SetNominalLinVel(double vel);
 
+  bool UseControlLevelPenalty() const;
+
+  void SetUseControlLevelPenalty(bool use);
+
  private:
   // Discretization parameters.
   double m_per_unit_x_;      // Meters/unit in x (discretization of x).
@@ -187,6 +191,8 @@ class Environment {
   // Dynamics model.
   LinearDynamics<2, 2>* dynamics_;
   double nominal_lin_vel_;
+
+  bool use_control_level_penalty_;
 };
 
 std::ostream& operator<<(std::ostream& os, const Environment::Action& action);

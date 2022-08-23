@@ -90,6 +90,7 @@ bool PlannerInterface::InitializePlanner(ros::NodeHandle* nh) {
     cfg_.Get<double>("exec_error_action_radius"), cfg_.Get<double>("exec_error_penalty")));
   NODELET_ERROR_STREAM("Params: " << env_.GetExecutionErrorNeighborhoodParameters());
   env_.SetUseWeightedPenalty(cfg_.Get<bool>("use_weighted_penalty"));
+  env_.SetUseControlLevelPenalty(cfg_.Get<bool>("use_control_level_penalty"));
 
   const double time_step = 0.1;  // TODO(eratner) Read from config
   Eigen::Matrix<double, 2, 2> A = Eigen::Matrix<double, 2, 2>::Identity();
@@ -125,6 +126,7 @@ bool PlannerInterface::ReconfigureCallback(dynamic_reconfigure::Config& config) 
     cfg_.Get<double>("exec_error_action_radius"), cfg_.Get<double>("exec_error_penalty")));
   NODELET_ERROR_STREAM("Params: " << env_.GetExecutionErrorNeighborhoodParameters());
   env_.SetUseWeightedPenalty(cfg_.Get<bool>("use_weighted_penalty"));
+  env_.SetUseControlLevelPenalty(cfg_.Get<bool>("use_control_level_penalty"));
 
   return true;
 }
@@ -615,100 +617,102 @@ bool PlannerInterface::ReportExecutionError(ReportExecutionError::Request& req, 
   // PublishWeightedPenalties(min_x, max_x, min_y, max_y);
   // PublishWeightedPenaltyHeatmap(min_x, max_x, min_y, max_y);
 
-  // Construct the data set that we'll use to update the discrepancy models.
-  std::vector<Eigen::Vector2d> states;
-  std::vector<Eigen::Vector2d> controls;
-  std::vector<Eigen::Vector2d> errors;
-  const double max_speed = 0.1;       // Max speed (m/s) TODO(eratner) Make this a parameter
-  const double error_thresh = 0.015;  // TODO(eratner) Make this a parameter
-  NODELET_ERROR("## Before pre-processing: ");
-  for (unsigned int i = 0; i < req.control_history.desired_pose.size() - 1; ++i) {
-    const auto& actual_pose = req.control_history.actual_pose[i];
-    const auto& desired_pose = req.control_history.desired_pose[i + 1];
-    const auto& actual_next_pose = req.control_history.actual_pose[i + 1];
-    double time_step = (req.control_history.time[i + 1] - req.control_history.time[i]).toSec();
+  if (env_.UseControlLevelPenalty()) {
+    // Construct the data set that we'll use to update the discrepancy models.
+    std::vector<Eigen::Vector2d> states;
+    std::vector<Eigen::Vector2d> controls;
+    std::vector<Eigen::Vector2d> errors;
+    const double max_speed = 0.1;       // Max speed (m/s) TODO(eratner) Make this a parameter
+    const double error_thresh = 0.015;  // TODO(eratner) Make this a parameter
+    NODELET_ERROR("## Before pre-processing: ");
+    for (unsigned int i = 0; i < req.control_history.desired_pose.size() - 1; ++i) {
+      const auto& actual_pose = req.control_history.actual_pose[i];
+      const auto& desired_pose = req.control_history.desired_pose[i + 1];
+      const auto& actual_next_pose = req.control_history.actual_pose[i + 1];
+      double time_step = (req.control_history.time[i + 1] - req.control_history.time[i]).toSec();
 
-    // Filter out some bad data (TODO(eratner) why does this happen?)
-    if (time_step < 1e-3 || time_step > 1.0) continue;
+      // Filter out some bad data (TODO(eratner) why does this happen?)
+      if (time_step < 1e-3 || time_step > 1.0) continue;
 
-    Eigen::Vector2d pos, desired_pos, actual_next_pos, to_desired;
-    pos << actual_pose.position.x, actual_pose.position.y;
-    desired_pos << desired_pose.position.x, desired_pose.position.y;
-    actual_next_pos << actual_next_pose.position.x, actual_next_pose.position.y;
-    to_desired = desired_pos - pos;
+      Eigen::Vector2d pos, desired_pos, actual_next_pos, to_desired;
+      pos << actual_pose.position.x, actual_pose.position.y;
+      desired_pos << desired_pose.position.x, desired_pose.position.y;
+      actual_next_pos << actual_next_pose.position.x, actual_next_pose.position.y;
+      to_desired = desired_pos - pos;
 
-    Eigen::Vector2d ctl_vel = to_desired / time_step;
-    double ctl_speed = ctl_vel.norm();
-    // Enforce a max speed.
-    if (ctl_speed > max_speed) ctl_vel = max_speed * ctl_vel / ctl_speed;
+      Eigen::Vector2d ctl_vel = to_desired / time_step;
+      double ctl_speed = ctl_vel.norm();
+      // Enforce a max speed.
+      if (ctl_speed > max_speed) ctl_vel = max_speed * ctl_vel / ctl_speed;
 
-    Eigen::Vector2d expected_next_pos = pos + time_step * ctl_vel;
-    Eigen::Vector2d error = expected_next_pos - actual_next_pos;
+      Eigen::Vector2d expected_next_pos = pos + time_step * ctl_vel;
+      Eigen::Vector2d error = expected_next_pos - actual_next_pos;
 
-    if (error.norm() > error_thresh) {
-      // If error is high enough, this is an observation of a disturbance.
-      states.push_back(pos);
-      controls.push_back(ctl_vel);
-      errors.push_back(error);
-      NODELET_ERROR_STREAM("  x: " << states.back().transpose() << ", u: " << controls.back().transpose()
-                                   << ", e: " << errors.back().transpose() << ", ||e||" << errors.back().norm()
-                                   << ", time_step: " << time_step);
-    }
-  }
-
-  std::vector<Eigen::Vector4d> training_inputs;
-  std::vector<double> targets_x, targets_y;
-  PreprocessTrainingData(states, controls, errors, training_inputs, targets_x, targets_y);
-  NODELET_ERROR_STREAM("After preprocessing, " << training_inputs.size() << " training examples");
-
-  // Update the GPs with the new training data.
-  dynamics_->GetDisturbances()[0].Train(training_inputs, targets_x);
-  dynamics_->GetDisturbances()[1].Train(training_inputs, targets_y);
-
-  //////////////////////////////////////////////////////////////////////////////
-  // For testing.
-  double curr_x = 0.0, curr_y = 0.0, curr_z = 0.0, curr_yaw = 0.0;
-  GetPose(curr_x, curr_y, curr_z, curr_yaw);
-  auto curr_state = env_.GetState(curr_x, curr_y, curr_yaw);
-  NODELET_ERROR_STREAM("## Curr state: " << *curr_state);
-  // for (const auto& action : env_.GetActions()) {
-  //   NODELET_ERROR_STREAM("#### Action: " << action);
-  //   double penalty = env_.GetControlLevelPenalty(curr_state, action);
-  //   NODELET_ERROR_STREAM("####  Control penalty: " << penalty);
-  // }
-  //////////////////////////////////////////////////////////////////////////////
-
-  PublishActionsAndPenalties(1);
-
-  //////////////////////////////////////////////////////////////////////////////
-  // For testing.
-  NODELET_ERROR("-------------------------");
-  int move_neg_x_action_index = -1;
-  for (unsigned int i = 0; i < env_.GetActions().size(); ++i) {
-    const auto& action = env_.GetActions()[i];
-    if (action.name_ == "move_neg_x") {
-      move_neg_x_action_index = i;
-      break;
-    }
-  }
-
-  if (move_neg_x_action_index >= 0) {
-    const auto& a = env_.GetActions()[move_neg_x_action_index];
-    ellis_planner::State::Ptr s = curr_state;
-    for (int i = 0; i < 8; ++i) {
-      NODELET_ERROR_STREAM("At state " << *s << " taking action " << a.name_ << "...");
-      auto outcome_and_cost = env_.GetOutcome(s, a);
-      s = std::get<0>(outcome_and_cost);
-      if (!s) {
-        NODELET_ERROR("  Action has no outcome!");
-        break;
-      } else {
-        double cost = std::get<1>(outcome_and_cost);
-        NODELET_ERROR_STREAM("  Action has cost " << cost);
+      if (error.norm() > error_thresh) {
+        // If error is high enough, this is an observation of a disturbance.
+        states.push_back(pos);
+        controls.push_back(ctl_vel);
+        errors.push_back(error);
+        NODELET_ERROR_STREAM("  x: " << states.back().transpose() << ", u: " << controls.back().transpose()
+                                     << ", e: " << errors.back().transpose() << ", ||e||" << errors.back().norm()
+                                     << ", time_step: " << time_step);
       }
     }
+
+    std::vector<Eigen::Vector4d> training_inputs;
+    std::vector<double> targets_x, targets_y;
+    PreprocessTrainingData(states, controls, errors, training_inputs, targets_x, targets_y);
+    NODELET_ERROR_STREAM("After preprocessing, " << training_inputs.size() << " training examples");
+
+    // Update the GPs with the new training data.
+    dynamics_->GetDisturbances()[0].Train(training_inputs, targets_x);
+    dynamics_->GetDisturbances()[1].Train(training_inputs, targets_y);
+
+    //////////////////////////////////////////////////////////////////////////////
+    // For testing.
+    double curr_x = 0.0, curr_y = 0.0, curr_z = 0.0, curr_yaw = 0.0;
+    GetPose(curr_x, curr_y, curr_z, curr_yaw);
+    auto curr_state = env_.GetState(curr_x, curr_y, curr_yaw);
+    NODELET_ERROR_STREAM("## Curr state: " << *curr_state);
+    // for (const auto& action : env_.GetActions()) {
+    //   NODELET_ERROR_STREAM("#### Action: " << action);
+    //   double penalty = env_.GetControlLevelPenalty(curr_state, action);
+    //   NODELET_ERROR_STREAM("####  Control penalty: " << penalty);
+    // }
+    //////////////////////////////////////////////////////////////////////////////
+
+    PublishActionsAndPenalties(1);
+
+    //////////////////////////////////////////////////////////////////////////////
+    // For testing.
+    NODELET_ERROR("-------------------------");
+    int move_neg_x_action_index = -1;
+    for (unsigned int i = 0; i < env_.GetActions().size(); ++i) {
+      const auto& action = env_.GetActions()[i];
+      if (action.name_ == "move_neg_x") {
+        move_neg_x_action_index = i;
+        break;
+      }
+    }
+
+    if (move_neg_x_action_index >= 0) {
+      const auto& a = env_.GetActions()[move_neg_x_action_index];
+      ellis_planner::State::Ptr s = curr_state;
+      for (int i = 0; i < 8; ++i) {
+        NODELET_ERROR_STREAM("At state " << *s << " taking action " << a.name_ << "...");
+        auto outcome_and_cost = env_.GetOutcome(s, a);
+        s = std::get<0>(outcome_and_cost);
+        if (!s) {
+          NODELET_ERROR("  Action has no outcome!");
+          break;
+        } else {
+          double cost = std::get<1>(outcome_and_cost);
+          NODELET_ERROR_STREAM("  Action has cost " << cost);
+        }
+      }
+    }
+    //////////////////////////////////////////////////////////////////////////////
   }
-  //////////////////////////////////////////////////////////////////////////////
 
   res.success = true;
   return true;

@@ -216,7 +216,12 @@ std::tuple<State::Ptr, double> Environment::GetOutcome(const State::Ptr state, c
   //   cost += GetWeightedPenalty(state, action);
   // else
   //   cost += GetPenalty(state, action);
-  cost += GetControlLevelPenalty(state, action);
+
+  if (UseControlLevelPenalty()) {
+    cost += GetControlLevelPenalty(state, action);
+  } else {
+    cost += GetPenalty(state, action);
+  }
 
   auto outcome = GetState(x, y, yaw);
   return std::make_tuple(outcome, cost);
@@ -463,6 +468,10 @@ void Environment::PredictTrajectory(const State::Ptr state, const Action& action
 double Environment::GetNominalLinVel() const { return nominal_lin_vel_; }
 
 void Environment::SetNominalLinVel(double vel) { nominal_lin_vel_ = vel; }
+
+bool Environment::UseControlLevelPenalty() const { return use_control_level_penalty_; }
+
+void Environment::SetUseControlLevelPenalty(bool use) { use_control_level_penalty_ = use; }
 
 std::ostream& operator<<(std::ostream& os, const Environment::Action& action) {
   os << "{name: " << action.name_ << ", change_in_x: " << action.change_in_x_
