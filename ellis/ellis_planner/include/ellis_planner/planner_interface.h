@@ -66,6 +66,10 @@ class PlannerInterface : public planner::PlannerImplementation {
 
   bool ReportExecutionError(ReportExecutionError::Request& req, ReportExecutionError::Response& res);
 
+  void PreprocessTrainingData(const std::vector<Eigen::Vector2d>& states, const std::vector<Eigen::Vector2d>& controls,
+                              const std::vector<Eigen::Vector2d>& errors, std::vector<Eigen::Vector4d>& training_inputs,
+                              std::vector<double>& targets_x, std::vector<double>& targets_y);
+
   void PublishExecutionErrorNeighborhoodMarkers();
 
   bool ClearExecutionErrors(std_srvs::Trigger::Request& req, std_srvs::Trigger::Response& res);
@@ -80,6 +84,8 @@ class PlannerInterface : public planner::PlannerImplementation {
 
   void PublishWeightedPenaltyHeatmap(double min_x, double max_x, double min_y, double max_y,
                                      double visualize_at_z = -0.2);
+
+  void PublishActionsAndPenalties(unsigned int max_depth = 2);
 
   ff_util::ConfigServer cfg_;
 
@@ -102,6 +108,8 @@ class PlannerInterface : public planner::PlannerImplementation {
   Search search_;
 
   std::vector<ff_msgs::ControlState> last_trajectory_;
+
+  LinearDynamics<2, 2>* dynamics_;
 };
 
 }  // namespace ellis_planner

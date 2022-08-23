@@ -154,19 +154,19 @@ def read_bagfile(bagfile):
             plt.show()
 
         ########################################################################
-        # fig, ax = plt.subplots(figsize=(10, 10))
-        # ax.set_title("Discrepancy threshold = {}".format(thresh))
-        # ax.set_xlim([-0.05, 0.35])
-        # ax.set_ylim([-0.20, 0.20])
-        # ax.set_xlabel("$x$ ($m$)")
-        # ax.set_ylabel("$y$ ($m$)")
-        # ax.scatter(desired_xs, desired_ys, color='black', label="Reference")
-        # # ax.scatter(actual_xs, actual_ys, color='red')
-        # ax.scatter(actual_xs_ok, actual_ys_ok, color='green', marker='o', label="Actual (Ok)")
-        # ax.scatter(actual_xs_not_ok, actual_ys_not_ok, color='red', marker='o', label="Actual (Not Ok)")
-        # ax.legend()
+        fig, ax = plt.subplots(figsize=(10, 10))
+        ax.set_title("Discrepancy threshold = {}".format(thresh))
+        ax.set_xlim([-0.05, 0.35])
+        ax.set_ylim([-0.20, 0.20])
+        ax.set_xlabel("$x$ ($m$)")
+        ax.set_ylabel("$y$ ($m$)")
+        ax.scatter(desired_xs, desired_ys, color='black', label="Reference")
+        # ax.scatter(actual_xs, actual_ys, color='red')
+        ax.scatter(actual_xs_ok, actual_ys_ok, color='green', marker='o', label="Actual (Ok)")
+        ax.scatter(actual_xs_not_ok, actual_ys_not_ok, color='red', marker='o', label="Actual (Not Ok)")
+        ax.legend()
 
-        # plt.show()
+        plt.show()
         ########################################################################
 
     bag.close()

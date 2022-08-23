@@ -10,5 +10,7 @@ float64 action_dir_x
 float64 action_dir_y
 float64 action_dir_yaw
 
+ellis_planner/ControlHistory control_history
+
 ---
 bool success

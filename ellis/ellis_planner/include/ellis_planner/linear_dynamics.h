@@ -27,6 +27,10 @@ class LinearDynamics {
 
   std::array<GP<StateDim + ControlDim>, StateDim> &GetDisturbances();
 
+  const Eigen::Matrix<double, StateDim, StateDim> &GetA() const;
+
+  const Eigen::Matrix<double, StateDim, ControlDim> &GetB() const;
+
  private:
   Eigen::Matrix<double, StateDim, StateDim> A_;
   Eigen::Matrix<double, StateDim, ControlDim> B_;

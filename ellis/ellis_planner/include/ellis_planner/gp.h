@@ -7,6 +7,8 @@
 #include <array>
 #include <vector>
 #include <cmath>
+#include <string>
+#include <sstream>
 #include <iostream>
 
 namespace ellis_planner {
@@ -16,6 +18,8 @@ class GP {
  public:
   struct Parameters {
     Parameters();
+
+    std::string ToYaml() const;
 
     double v0_;                             // Variance of noise.
     double v1_;                             // Parameter of squared exponential covariance function.
@@ -44,7 +48,9 @@ class GP {
 
   Eigen::Matrix<double, InputDim, InputDim> GetSecondDerivOfVarFunc(const InputVec& x) const;
 
-  Parameters &GetParameters();
+  Parameters& GetParameters();
+
+  unsigned int GetNumTrainingInputs() const;
 
  private:
   Parameters params_;

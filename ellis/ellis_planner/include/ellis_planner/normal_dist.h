@@ -3,6 +3,8 @@
 #define ELLIS_PLANNER_NORMAL_DIST_H_
 
 #include <Eigen/Dense>
+#include <random>
+#include <vector>
 
 namespace ellis_planner {
 
@@ -16,6 +18,29 @@ struct MultivariateNormal {
     if (normalized) n = std::pow(2 * M_PI, Dimension / 2) * std::sqrt(cov.determinant());
 
     return (std::exp(-0.5 * (arg - mean).transpose() * cov.inverse() * (arg - mean)) / n);
+  }
+
+  // See https://stackoverflow.com/questions/6142576/sample-from-multivariate-normal-gaussian-distribution-in-c
+  static std::vector<Vec> Sample(const Vec& mean, const Mat& cov, unsigned int num_samples = 1) {
+    std::vector<Vec> samples;
+
+    std::random_device rd{};
+    std::mt19937 gen{rd()};
+    std::normal_distribution<> d;
+
+    Eigen::SelfAdjointEigenSolver<Mat> solver(cov);
+    Mat transform = solver.eigenvectors() * solver.eigenvalues().cwiseSqrt().asDiagonal();
+
+    for (unsigned int i = 0; i < num_samples; ++i) {
+      // TODO(eratner) Unapproved C++ feature??
+      // Vec sample = mean + transform * Vec{}.unaryExpr([&](double x) { return d(gen); });
+      Vec m;
+      for (unsigned int j = 0; j < Dimension; ++j) m(j) = d(gen);
+      Vec sample = mean + transform * m;
+      samples.push_back(sample);
+    }
+
+    return samples;
   }
 };
 

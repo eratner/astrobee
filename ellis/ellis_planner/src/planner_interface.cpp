@@ -4,17 +4,25 @@
 #include <vector>
 #include <string>
 #include <algorithm>
+#include <queue>
+#include <unordered_map>
+#include <utility>
 
 namespace ellis_planner {
 
 PlannerInterface::PlannerInterface()
     : planner::PlannerImplementation("ellis", "Ellis's experimental planner"),
       tf_listener_(tf_buffer_),
-      search_(&env_) {
+      search_(&env_),
+      dynamics_(nullptr) {
   NODELET_DEBUG("Constructing ellis planner nodelet...");
 }
 
-PlannerInterface::~PlannerInterface() { NODELET_DEBUG("Destroying ellis planner nodelet..."); }
+PlannerInterface::~PlannerInterface() {
+  NODELET_DEBUG("Destroying ellis planner nodelet...");
+
+  if (dynamics_) delete dynamics_;
+}
 
 bool PlannerInterface::InitializePlanner(ros::NodeHandle* nh) {
   cfg_.Initialize(GetPrivateHandle(), "mobility/ellis_planner.config");
@@ -22,7 +30,7 @@ bool PlannerInterface::InitializePlanner(ros::NodeHandle* nh) {
 
   // TODO(eratner) Read topic name from config
   std::string vis_topic = "/mob/ellis_planner/vis";
-  vis_pub_ = nh->advertise<visualization_msgs::Marker>(vis_topic, 50);
+  vis_pub_ = nh->advertise<visualization_msgs::Marker>(vis_topic, 1000);
 
   std::string planning_info_topic = "/mob/ellis_planner/info";
   planning_info_pub_ = nh->advertise<PlanningInfo>(planning_info_topic, 10);
@@ -41,6 +49,8 @@ bool PlannerInterface::InitializePlanner(ros::NodeHandle* nh) {
 
   nominal_lin_vel_ = cfg_.Get<double>("nominal_lin_vel");
   nominal_ang_vel_ = cfg_.Get<double>("nominal_ang_vel");
+
+  env_.SetNominalLinVel(nominal_lin_vel_);
 
   std::vector<Environment::Action> actions;
   XmlRpc::XmlRpcValue action_info;
@@ -72,11 +82,36 @@ bool PlannerInterface::InitializePlanner(ros::NodeHandle* nh) {
   }
   env_.SetActions(actions);
 
+  NODELET_ERROR_STREAM("Loaded " << env_.GetActions().size() << " actions: ");
+  for (const auto& action : env_.GetActions()) NODELET_ERROR_STREAM("  " << action);
+
   env_.SetExecutionErrorNeighborhoodParameters(Environment::ExecutionErrorNeighborhoodParameters(
     cfg_.Get<double>("exec_error_state_radius_pos"), cfg_.Get<double>("exec_error_state_radius_yaw"),
     cfg_.Get<double>("exec_error_action_radius"), cfg_.Get<double>("exec_error_penalty")));
   NODELET_ERROR_STREAM("Params: " << env_.GetExecutionErrorNeighborhoodParameters());
   env_.SetUseWeightedPenalty(cfg_.Get<bool>("use_weighted_penalty"));
+
+  const double time_step = 0.1;  // TODO(eratner) Read from config
+  Eigen::Matrix<double, 2, 2> A = Eigen::Matrix<double, 2, 2>::Identity();
+  Eigen::Matrix<double, 2, 2> B = time_step * Eigen::Matrix<double, 2, 2>::Identity();
+  dynamics_ = new LinearDynamics<2, 2>(A, B);
+  env_.SetDynamics(dynamics_);
+
+  // TODO(eratner) Read GP parameters from config
+  dynamics_->GetDisturbances()[0].GetParameters().v0_ = 1e-4;
+  dynamics_->GetDisturbances()[0].GetParameters().v1_ = 1e-4;
+  dynamics_->GetDisturbances()[0].GetParameters().weights_ =  // {0.1, 0.1, 0.8, 0.8};
+                                                              // {0.01, 0.01, 0.8, 0.8};
+    // {0.05, 0.05, 0.8, 0.8};
+    {0.05, 0.05, 0.05, 0.05};
+  NODELET_ERROR_STREAM("x disturbance GP params: " << dynamics_->GetDisturbances()[0].GetParameters().ToYaml());
+  dynamics_->GetDisturbances()[1].GetParameters().v0_ = 1e-4;
+  dynamics_->GetDisturbances()[1].GetParameters().v1_ = 1e-4;
+  dynamics_->GetDisturbances()[1].GetParameters().weights_ =  // {0.1, 0.1, 0.8, 0.8};
+                                                              // {0.01, 0.01, 0.8, 0.8};
+    // {0.05, 0.05, 0.8, 0.8};
+    {0.05, 0.05, 0.05, 0.05};
+  NODELET_ERROR_STREAM("y disturbance GP params: " << dynamics_->GetDisturbances()[1].GetParameters().ToYaml());
 
   return true;
 }
@@ -212,8 +247,9 @@ void PlannerInterface::PlanCallback(const ff_msgs::PlanGoal& goal) {
   info_pub.msg_.start_state.orientation.w = start_orien.w();
   info_pub.msg_.goal_state = goal_pose;
 
-  PublishPoseMarker(start_x, start_y, start_z, start_yaw, "ellis/start");
-  PublishPoseMarker(goal_pose.position.x, goal_pose.position.y, goal_pose.position.z, goal_yaw, "ellis/goal");
+  PublishPoseMarker(start_x, start_y, start_z, start_yaw, "ellis/start", false, 0.0, 1.0, 0.0, 0.5);
+  PublishPoseMarker(goal_pose.position.x, goal_pose.position.y, goal_pose.position.z, goal_yaw, "ellis/goal", false,
+                    1.0, 0.0, 0.0, 0.5);
   PublishObstacleMarkers();
 
   // NODELET_ERROR_STREAM("** " << env_.CollisionTestFunc(start_x, start_y, start_yaw));
@@ -259,17 +295,18 @@ void PlannerInterface::PlanCallback(const ff_msgs::PlanGoal& goal) {
   // PublishPathMarkers(path);
 
   NODELET_ERROR_STREAM("Found a path with cost: " << path_cost);
-  NODELET_ERROR("-----");
-  NODELET_ERROR_STREAM("state: " << *start_state);
-  for (const auto& nbhd : env_.GetExecutionErrorNeighborhoods()) {
-    NODELET_ERROR_STREAM("  nbhd: " << nbhd);
-    for (const auto& action : env_.GetActions()) {
-      NODELET_ERROR_STREAM(
-        "    action: " << action << ", contains? "
-                       << (nbhd.Contains(start_state, action, env_.GetExecutionErrorNeighborhoodParameters()) ? "YES"
-                                                                                                              : "NO"));
-    }
-  }
+  // NODELET_ERROR("-----");
+  // NODELET_ERROR_STREAM("state: " << *start_state);
+  // for (const auto& nbhd : env_.GetExecutionErrorNeighborhoods()) {
+  //   NODELET_ERROR_STREAM("  nbhd: " << nbhd);
+  //   for (const auto& action : env_.GetActions()) {
+  //     NODELET_ERROR_STREAM(
+  //       "    action: " << action << ", contains? "
+  //                      << (nbhd.Contains(start_state, action, env_.GetExecutionErrorNeighborhoodParameters()) ? "YES"
+  //                                                                                                             :
+  //                                                                                                             "NO"));
+  //   }
+  // }
 
   std::vector<Waypoint> waypoints;
   for (const auto state : path) {
@@ -341,8 +378,8 @@ void PlannerInterface::PlanCallback(const ff_msgs::PlanGoal& goal) {
 
   for (int i = 0; i < result.segment.size(); ++i) {
     const auto& pose = result.segment[i].pose;
-    NODELET_ERROR_STREAM("  " << i << ": pos: (" << pose.position.x << ", " << pose.position.y << ", "
-                              << pose.position.z << "), yaw: " << tf2::getYaw(pose.orientation));
+    // NODELET_ERROR_STREAM("  " << i << ": pos: (" << pose.position.x << ", " << pose.position.y << ", "
+    //                           << pose.position.z << "), yaw: " << tf2::getYaw(pose.orientation));
   }
 
   last_trajectory_ = result.segment;
@@ -576,10 +613,139 @@ bool PlannerInterface::ReportExecutionError(ReportExecutionError::Request& req, 
   double min_x = 0.0, max_x = 0.0, min_y = 0.0, max_y = 0.0;
   env_.GetBounds(min_x, max_x, min_y, max_y);
   // PublishWeightedPenalties(min_x, max_x, min_y, max_y);
-  PublishWeightedPenaltyHeatmap(min_x, max_x, min_y, max_y);
+  // PublishWeightedPenaltyHeatmap(min_x, max_x, min_y, max_y);
+
+  // Construct the data set that we'll use to update the discrepancy models.
+  std::vector<Eigen::Vector2d> states;
+  std::vector<Eigen::Vector2d> controls;
+  std::vector<Eigen::Vector2d> errors;
+  const double max_speed = 0.1;       // Max speed (m/s) TODO(eratner) Make this a parameter
+  const double error_thresh = 0.015;  // TODO(eratner) Make this a parameter
+  NODELET_ERROR("## Before pre-processing: ");
+  for (unsigned int i = 0; i < req.control_history.desired_pose.size() - 1; ++i) {
+    const auto& actual_pose = req.control_history.actual_pose[i];
+    const auto& desired_pose = req.control_history.desired_pose[i + 1];
+    const auto& actual_next_pose = req.control_history.actual_pose[i + 1];
+    double time_step = (req.control_history.time[i + 1] - req.control_history.time[i]).toSec();
+
+    // Filter out some bad data (TODO(eratner) why does this happen?)
+    if (time_step < 1e-3 || time_step > 1.0) continue;
+
+    Eigen::Vector2d pos, desired_pos, actual_next_pos, to_desired;
+    pos << actual_pose.position.x, actual_pose.position.y;
+    desired_pos << desired_pose.position.x, desired_pose.position.y;
+    actual_next_pos << actual_next_pose.position.x, actual_next_pose.position.y;
+    to_desired = desired_pos - pos;
+
+    Eigen::Vector2d ctl_vel = to_desired / time_step;
+    double ctl_speed = ctl_vel.norm();
+    // Enforce a max speed.
+    if (ctl_speed > max_speed) ctl_vel = max_speed * ctl_vel / ctl_speed;
+
+    Eigen::Vector2d expected_next_pos = pos + time_step * ctl_vel;
+    Eigen::Vector2d error = expected_next_pos - actual_next_pos;
+
+    if (error.norm() > error_thresh) {
+      // If error is high enough, this is an observation of a disturbance.
+      states.push_back(pos);
+      controls.push_back(ctl_vel);
+      errors.push_back(error);
+      NODELET_ERROR_STREAM("  x: " << states.back().transpose() << ", u: " << controls.back().transpose()
+                                   << ", e: " << errors.back().transpose() << ", ||e||" << errors.back().norm()
+                                   << ", time_step: " << time_step);
+    }
+  }
+
+  std::vector<Eigen::Vector4d> training_inputs;
+  std::vector<double> targets_x, targets_y;
+  PreprocessTrainingData(states, controls, errors, training_inputs, targets_x, targets_y);
+  NODELET_ERROR_STREAM("After preprocessing, " << training_inputs.size() << " training examples");
+
+  // Update the GPs with the new training data.
+  dynamics_->GetDisturbances()[0].Train(training_inputs, targets_x);
+  dynamics_->GetDisturbances()[1].Train(training_inputs, targets_y);
+
+  //////////////////////////////////////////////////////////////////////////////
+  // For testing.
+  double curr_x = 0.0, curr_y = 0.0, curr_z = 0.0, curr_yaw = 0.0;
+  GetPose(curr_x, curr_y, curr_z, curr_yaw);
+  auto curr_state = env_.GetState(curr_x, curr_y, curr_yaw);
+  NODELET_ERROR_STREAM("## Curr state: " << *curr_state);
+  // for (const auto& action : env_.GetActions()) {
+  //   NODELET_ERROR_STREAM("#### Action: " << action);
+  //   double penalty = env_.GetControlLevelPenalty(curr_state, action);
+  //   NODELET_ERROR_STREAM("####  Control penalty: " << penalty);
+  // }
+  //////////////////////////////////////////////////////////////////////////////
+
+  PublishActionsAndPenalties(1);
+
+  //////////////////////////////////////////////////////////////////////////////
+  // For testing.
+  NODELET_ERROR("-------------------------");
+  int move_neg_x_action_index = -1;
+  for (unsigned int i = 0; i < env_.GetActions().size(); ++i) {
+    const auto& action = env_.GetActions()[i];
+    if (action.name_ == "move_neg_x") {
+      move_neg_x_action_index = i;
+      break;
+    }
+  }
+
+  if (move_neg_x_action_index >= 0) {
+    const auto& a = env_.GetActions()[move_neg_x_action_index];
+    ellis_planner::State::Ptr s = curr_state;
+    for (int i = 0; i < 8; ++i) {
+      NODELET_ERROR_STREAM("At state " << *s << " taking action " << a.name_ << "...");
+      auto outcome_and_cost = env_.GetOutcome(s, a);
+      s = std::get<0>(outcome_and_cost);
+      if (!s) {
+        NODELET_ERROR("  Action has no outcome!");
+        break;
+      } else {
+        double cost = std::get<1>(outcome_and_cost);
+        NODELET_ERROR_STREAM("  Action has cost " << cost);
+      }
+    }
+  }
+  //////////////////////////////////////////////////////////////////////////////
 
   res.success = true;
   return true;
+}
+
+void PlannerInterface::PreprocessTrainingData(const std::vector<Eigen::Vector2d>& states,
+                                              const std::vector<Eigen::Vector2d>& controls,
+                                              const std::vector<Eigen::Vector2d>& errors,
+                                              std::vector<Eigen::Vector4d>& training_inputs,
+                                              std::vector<double>& targets_x, std::vector<double>& targets_y) {
+  const unsigned int burn = 10;         // TODO(eratner) Make this a parameter
+  const double min_state_dist = 0.001;  // TODO(eratner) Make this a parameter
+  const double min_target_dist = 0.025;
+  for (unsigned int i = burn; i < states.size(); ++i) {
+    bool accept = true;
+    for (unsigned int j = 0; j < training_inputs.size(); ++j) {
+      const auto& z = training_inputs[j];
+      if ((states[i] - z.block<2, 1>(0, 0)).norm() < min_state_dist) {
+        double diff_x = std::abs(-errors[i](0) - targets_x[j]);
+        double diff_y = std::abs(-errors[i](1) - targets_y[j]);
+        if (diff_x < min_target_dist && diff_y < min_target_dist) {
+          accept = false;
+          break;
+        }
+      }
+    }
+
+    if (accept) {
+      Eigen::Vector4d z;
+      z.block<2, 1>(0, 0) = states[i];
+      // z.block<2, 1>(2, 0) = controls[i] / controls[i].norm();
+      z.block<2, 1>(2, 0) = controls[i];
+      training_inputs.push_back(z);
+      targets_x.push_back(-errors[i](0));
+      targets_y.push_back(-errors[i](1));
+    }
+  }
 }
 
 void PlannerInterface::PublishExecutionErrorNeighborhoodMarkers() {
@@ -644,6 +810,9 @@ void PlannerInterface::PublishExecutionErrorNeighborhoodMarkers() {
 
 bool PlannerInterface::ClearExecutionErrors(std_srvs::Trigger::Request& req, std_srvs::Trigger::Response& res) {
   env_.ClearExecutionErrorNeighborhoods();
+
+  for (auto& disturbance : dynamics_->GetDisturbances()) disturbance.Reset();
+
   return true;
 }
 
@@ -797,6 +966,214 @@ void PlannerInterface::PublishWeightedPenaltyHeatmap(double min_x, double max_x,
   }
 
   vis_pub_.publish(msg);
+}
+
+void PlannerInterface::PublishActionsAndPenalties(unsigned int max_depth) {
+  // Get the current state.
+  double curr_x = 0.0, curr_y = 0.0, curr_z = 0.0, curr_yaw = 0.0;
+  GetPose(curr_x, curr_y, curr_z, curr_yaw);
+  auto curr_state = env_.GetState(curr_x, curr_y, curr_yaw);
+
+  std::unordered_map<int, bool> state_id_to_visited;
+
+  std::queue<std::pair<ellis_planner::State::Ptr, unsigned int>> working;
+  working.push(std::make_pair(curr_state, 0));
+  while (!working.empty()) {
+    auto state_and_depth = working.front();
+    working.pop();
+    auto state = state_and_depth.first;
+    auto depth = state_and_depth.second;
+
+    if (state_id_to_visited.find(state->GetId()) != state_id_to_visited.end()) {
+      // Already visited this state.
+      continue;
+    }
+
+    state_id_to_visited[state->GetId()] = true;
+
+    NODELET_ERROR_STREAM("At state " << *state);
+
+    // Publish sphere marker at this state.
+    visualization_msgs::Marker state_pos_msg;
+    state_pos_msg.header.frame_id = std::string(FRAME_NAME_WORLD);
+    state_pos_msg.ns = "/mob/ellis_planner/state/pos";
+    state_pos_msg.id = state->GetId();
+    state_pos_msg.type = visualization_msgs::Marker::SPHERE;
+    state_pos_msg.pose.position.x = state->GetX();
+    state_pos_msg.pose.position.y = state->GetY();
+    state_pos_msg.pose.position.z = -0.674614;  // TODO(eratner) Fix this
+    state_pos_msg.pose.orientation.x = 0;
+    state_pos_msg.pose.orientation.y = 0;
+    state_pos_msg.pose.orientation.z = 0;
+    state_pos_msg.pose.orientation.w = 1;
+    state_pos_msg.color.r = 0;
+    state_pos_msg.color.g = 0;
+    state_pos_msg.color.b = 1.0;
+    state_pos_msg.color.a = 0.5;
+
+    const double discr_threshold = 0.075;
+
+    // state_pos_msg.scale.x = 0.02;
+    // state_pos_msg.scale.y = 0.02;
+    state_pos_msg.scale.x = 2.0 * discr_threshold;
+    state_pos_msg.scale.y = 2.0 * discr_threshold;
+    state_pos_msg.scale.z = 0.02;
+    vis_pub_.publish(state_pos_msg);
+
+    if (depth >= max_depth) {
+      // Don't exceed max depth steps away from the current state.
+      continue;
+    }
+
+    for (const auto& action : env_.GetActions()) {
+      if (std::abs(action.change_in_x_) < 1e-6 && std::abs(action.change_in_y_) < 1e-6) {
+        // Skip actions that don't change the position.
+        continue;
+      }
+
+      // Publish arrow marker for this action.
+      visualization_msgs::Marker action_msg;
+      action_msg.header.frame_id = std::string(FRAME_NAME_WORLD);
+      action_msg.ns = "/mob/ellis_planner/state/" + std::to_string(state->GetId()) + "/" + action.name_;
+      action_msg.id = 0;
+      action_msg.type = visualization_msgs::Marker::ARROW;
+      action_msg.pose.position.x = 0;
+      action_msg.pose.position.y = 0;
+      action_msg.pose.position.z = 0;
+      action_msg.pose.orientation.x = 0;
+      action_msg.pose.orientation.y = 0;
+      action_msg.pose.orientation.z = 0;
+      action_msg.pose.orientation.w = 1;
+      action_msg.color.r = 0;
+      action_msg.color.g = 0.5;
+      action_msg.color.b = 0.5;
+      action_msg.color.a = 0.5;
+
+      geometry_msgs::Point action_start_pos, action_end_pos;
+      action_start_pos.x = state->GetX();
+      action_start_pos.y = state->GetY();
+      action_start_pos.z = -0.674614;  // TODO(eratner) Fix this
+      action_end_pos.x = state->GetX() + action.change_in_x_;
+      action_end_pos.y = state->GetY() + action.change_in_y_;
+      action_end_pos.z = -0.674614;  // TODO(eratner) Fix this
+      action_msg.points = {action_start_pos, action_end_pos};
+
+      action_msg.scale.x = 0.02;
+      action_msg.scale.y = 0.03;
+      vis_pub_.publish(action_msg);
+
+      // Publish text marker with the penalty, to the right of the arrow.
+      double penalty =
+        env_.GetControlLevelPenalty(state, action) / env_.GetExecutionErrorNeighborhoodParameters().penalty_;
+      visualization_msgs::Marker penalty_msg;
+      penalty_msg.header.frame_id = std::string(FRAME_NAME_WORLD);
+      penalty_msg.ns = "/mob/ellis_planner/state/" + std::to_string(state->GetId()) + "/" + action.name_;
+      penalty_msg.id = 1;
+      penalty_msg.type = visualization_msgs::Marker::TEXT_VIEW_FACING;
+
+      Eigen::Vector2d start, start_to_end;
+      start << state->GetX(), state->GetY();
+      start_to_end << action.change_in_x_, action.change_in_y_;
+
+      Eigen::Vector2d start_to_end_dir = start_to_end / start_to_end.norm();
+      Eigen::Vector2d start_to_end_dir_perp;
+      start_to_end_dir_perp << start_to_end_dir(1), -start_to_end_dir(0);
+      Eigen::Vector2d pos = start + 0.75 * start_to_end + 0.02 * start_to_end_dir_perp;
+
+      penalty_msg.pose.position.x = pos(0);
+      penalty_msg.pose.position.y = pos(1);
+      penalty_msg.pose.position.z = -0.674614;  // TODO(eratner) Fix this
+      penalty_msg.pose.orientation.x = 0;
+      penalty_msg.pose.orientation.y = 0;
+      penalty_msg.pose.orientation.z = 0;
+      penalty_msg.pose.orientation.w = 1;
+      penalty_msg.color.r = 1.0;
+      penalty_msg.color.g = 1.0;
+      penalty_msg.color.b = 1.0;
+      penalty_msg.color.a = 1.0;
+      penalty_msg.scale.z = 0.01;
+      penalty_msg.text = std::to_string(penalty);
+      vis_pub_.publish(penalty_msg);
+
+      // Show predicted trajectory of this action.
+      std::vector<Eigen::Vector2d> pred_mean;
+      std::vector<Eigen::Matrix<double, 2, 2>> pred_cov;
+      env_.PredictTrajectory(state, action, pred_mean, pred_cov);
+      visualization_msgs::Marker traj_msg;
+      traj_msg.header.frame_id = std::string(FRAME_NAME_WORLD);
+      traj_msg.ns = "/mob/ellis_planner/state/" + std::to_string(state->GetId()) + "/" + action.name_;
+      traj_msg.id = 2;
+      traj_msg.type = visualization_msgs::Marker::SPHERE_LIST;
+      traj_msg.pose.position.x = 0;
+      traj_msg.pose.position.y = 0;
+      traj_msg.pose.position.z = -0.674614;  // TODO(eratner) Fix this
+      traj_msg.pose.orientation.x = 0;
+      traj_msg.pose.orientation.y = 0;
+      traj_msg.pose.orientation.z = 0;
+      traj_msg.pose.orientation.w = 1;
+      traj_msg.color.r = 1;
+      traj_msg.color.g = 0;
+      traj_msg.color.b = 0;
+      traj_msg.color.a = 0.85;
+      traj_msg.scale.x = 0.005;
+      traj_msg.scale.y = 0.005;
+      traj_msg.scale.z = 0.005;
+      unsigned int i = 0;
+      std::vector<visualization_msgs::Marker> cov_msgs;
+      while (i < pred_mean.size()) {
+        const auto& mean = pred_mean[i];
+        geometry_msgs::Point p;
+        p.x = mean(0);
+        p.y = mean(1);
+        p.z = 0;
+        traj_msg.points.push_back(p);
+
+        const auto& cov = pred_cov[i];
+        visualization_msgs::Marker cov_msg;
+        cov_msg.header.frame_id = std::string(FRAME_NAME_WORLD);
+        cov_msg.ns = "/mob/ellis_planner/state/" + std::to_string(state->GetId()) + "/" + action.name_;
+        cov_msg.id = 3 + i;
+        cov_msg.type = visualization_msgs::Marker::CYLINDER;
+        cov_msg.pose.position.x = mean(0);
+        cov_msg.pose.position.y = mean(1);
+        cov_msg.pose.position.z = -0.674614;  // TODO(eratner) Fix this
+        cov_msg.pose.orientation.x = 0;
+        cov_msg.pose.orientation.y = 0;
+        cov_msg.pose.orientation.z = 0;
+        cov_msg.pose.orientation.w = 1;
+        cov_msg.color.r = 1;
+        cov_msg.color.g = 0;
+        cov_msg.color.b = 0;
+        cov_msg.color.a = 0.10;
+        cov_msg.scale.x = std::sqrt(cov(0, 0));
+        cov_msg.scale.y = std::sqrt(cov(1, 1));
+        cov_msg.scale.z = 0.005;
+        cov_msgs.push_back(cov_msg);
+
+        // Always show the last point on the trajectory.
+        if (i < pred_mean.size() - 1 && i + 5 >= pred_mean.size())
+          i = pred_mean.size() - 1;
+        else
+          i += 5;
+      }
+      vis_pub_.publish(traj_msg);
+
+      for (const auto& msg : cov_msgs) vis_pub_.publish(msg);
+
+      // Add the successor state of this outcome.
+      auto succ_and_cost = env_.GetOutcome(state, action);
+      auto succ = std::get<0>(succ_and_cost);
+      auto cost = std::get<1>(succ_and_cost);
+      if (succ) {
+        NODELET_ERROR_STREAM("  Action " << action.name_ << ", outcome: " << *succ << ", cost: " << cost
+                                         << ", discr prob: " << penalty);
+        NODELET_ERROR_STREAM("    Mean: " << pred_mean.back().transpose() << ", cov: \n" << pred_cov.back());
+        NODELET_ERROR_STREAM("    # predictions: " << pred_mean.size() << ", " << pred_cov.size());
+
+        working.push(std::make_pair(succ, depth + 1));
+      }
+    }
+  }
 }
 
 }  // namespace ellis_planner

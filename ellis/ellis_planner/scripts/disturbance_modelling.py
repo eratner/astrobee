@@ -114,6 +114,8 @@ class LinearDynamics:
         return x_next
 
     def predict(self, x_start, us):
+        time_step = 0.1 # TODO
+
         z_start = np.concatenate([x_start.flatten(), us[0].flatten()])
         D = len(z_start)
         D_state = len(x_start)
@@ -142,7 +144,7 @@ class LinearDynamics:
 
             tmp = A.dot(mean)
             #print("mean = {}, A.dot(mean) = {}, d = {}".format(mean, tmp, d))
-            next_mean = A.dot(mean) + d
+            next_mean = A.dot(mean) + time_step * d
             #print("next_mean = {}".format(next_mean))
             z_pred_mean.append(next_mean)
 
@@ -151,7 +153,7 @@ class LinearDynamics:
             if t == 1:
                 for i in range(len(self._d)):
                     #print("mean = {}".format(mean))
-                    next_cov[i, i] = float(self._d[i].var_func(mean))
+                    next_cov[i, i] = (time_step**2) * float(self._d[i].var_func(mean))
             else:
                 next_cov = A.dot(cov.dot(A.T)).reshape((D, D))
 
@@ -166,7 +168,7 @@ class LinearDynamics:
                     dmean = d.get_first_deriv_mean_func(mean)
                     v += (dmean.T.dot(cov.dot(dmean)))
 
-                    vs.append(float(v))
+                    vs.append((time_step**2) * float(v))
 
                 for i in range(D - D_state):
                     vs.append(0.0)
@@ -341,31 +343,39 @@ def test_pred__1d_gp():
     plt.show()
 
 
-def preprocess_training_data(states, controls, errors):
+def preprocess_training_data(states, controls, errors, time_steps):
     training_inputs = []
     targets_x = []
     targets_y = []
 
-    for x, u, e in zip(states[10:], controls[10:], errors[10:]):
+    burn = 10
+
+    for x, u, e, t in zip(states[burn:], controls[burn:], errors[burn:], time_steps[burn:]):
         ok = True
-        for z, ex, ey in zip(training_inputs, targets_x, targets_y):
+        for z, vx, vy in zip(training_inputs, targets_x, targets_y):
             dist = np.linalg.norm(x - z[:2].flatten())
-            #print("x = {}, z = {}, dist = {}".format(x, z[:2].flatten(), dist))
+            print("x = {}, z = {}, dist = {}".format(x, z[:2].flatten(), dist))
             # if dist < 0.035: # TODO Make a parameter
             if dist < 0.001:
-                diff_x = abs(-e[0] - ex)
-                diff_y = abs(-e[1] - ey)
-                #print("e = {}, diff_x = {}, diff_y = {}".format(e, diff_x, diff_y))
+                # diff_x = abs(-e[0] - ex)
+                # diff_y = abs(-e[1] - ey)
+                diff_x = abs(-e[0] / t - vx)
+                diff_y = abs(-e[1] / t - vy)
+                print("e = {}, diff_x = {}, diff_y = {}".format(e, diff_x, diff_y))
                 if diff_x < 0.025 and diff_y < 0.025:
                     ok = False
                     break
         if ok:
             u_normalized = u / np.linalg.norm(u)
+            # z = np.concatenate([
+            #     x.flatten(), u_normalized.flatten()]).reshape((4, 1))
             z = np.concatenate([
-                x.flatten(), u_normalized.flatten()]).reshape((4, 1))
+                x.flatten(), u.flatten()]).reshape((4, 1))
             training_inputs.append(z)
-            targets_x.append(-e[0])
-            targets_y.append(-e[1])
+            # targets_x.append(-e[0])
+            # targets_y.append(-e[1])
+            targets_x.append(-e[0] / t)
+            targets_y.append(-e[1] / t)
 
     return training_inputs, targets_x, targets_y
 
@@ -379,7 +389,9 @@ def plot_action(ax, dyn, start_state, controls, time_step, discrepancy_thresh):
         xs_no_dist.append(x_next)
 
     pred_mean, pred_cov = dyn.predict(start_state, controls)
-    print("pred mean = {} cov = {}".format(pred_mean[-1], pred_cov[-1]))
+    print("pred mean start: {}, end: {}".format(
+        pred_mean[0].flatten(), pred_mean[-1].flatten()))
+    print("pred cov start: {}, end: {}".format(pred_cov[0], pred_cov[-1]))
 
     ########################################################################
     last_pred_mean = pred_mean[-1]
@@ -391,16 +403,33 @@ def plot_action(ax, dyn, start_state, controls, time_step, discrepancy_thresh):
     num_x_ends = 1000
     x_ends = np.random.multivariate_normal(
         mean=last_pred_mean.flatten(), cov=last_pred_cov, size=num_x_ends)
+    # x_ends = np.random.multivariate_normal(
+    #     mean=np.array([-0.00661158, 0.360251]), # np.array([-0.375852, 0.362649]),
+    #     cov=np.array([[0.00499921, 0.0], [0.0, 0.00499921]]),
+    #     # np.array([[0.00488976, 0.0],
+    #          #         [0.0, 0.00488976]]),
+    #     size=num_x_ends)
+
+    x_ok = []
+    x_not_ok = []
+
     num_x_ends_disc = 0
     for i in range(num_x_ends):
         x_end = x_ends[i]
         err = np.linalg.norm(last_desired.flatten() - x_end.flatten())
+        # err = np.linalg.norm(np.array([-0.3, 0.36]) - x_end.flatten())
+        # err = np.linalg.norm(np.array([0, 0.36]) - x_end.flatten())
         if err > discrepancy_thresh:
             num_x_ends_disc += 1
+            x_not_ok.append(x_end)
+        else:
+            x_ok.append(x_end)
 
     prob_disc = 1.0 * num_x_ends_disc / num_x_ends
     print("prob disc = {}".format(prob_disc))
     ax.text(last_desired[0], last_desired[1], str(prob_disc), color='red')
+    # ax.scatter([x[0] for x in x_not_ok], [x[1] for x in x_not_ok], alpha=0.2, color='red')
+    # ax.scatter([x[0] for x in x_ok], [x[1] for x in x_ok], alpha=0.2, color='green')
     ########################################################################
 
     # Plot the trajectory w/o disturbances.
@@ -408,8 +437,8 @@ def plot_action(ax, dyn, start_state, controls, time_step, discrepancy_thresh):
             [x[1] for x in xs_no_dist],
             color='red', linewidth=2)
     e = Ellipse(xy=(xs_no_dist[-1][0], xs_no_dist[-1][1]),
-                width=discrepancy_thresh,
-                height=discrepancy_thresh,
+                width=2.0 * discrepancy_thresh,
+                height=2.0 * discrepancy_thresh,
                 fill=False, edgecolor='red', linestyle='dashed')
     ax.add_artist(e)
 
@@ -425,7 +454,248 @@ def plot_action(ax, dyn, start_state, controls, time_step, discrepancy_thresh):
         ax.add_artist(e)
 
 
+def msg_to_training_data(msg, thresh, max_speed):
+    # Construct the data set.
+    states = []
+    controls = []
+    errors = []
+    time_steps = []
+
+    for i in range(len(msg.desired_pose) - 1):
+        actual_pose = msg.actual_pose[i]
+        desired_pose = msg.desired_pose[i + 1]
+        next_actual_pose = msg.actual_pose[i + 1]
+        time_step = (msg.time[i + 1] - msg.time[i]).to_sec()
+
+        if time_step < 1e-3 or time_step > 1.0:
+            continue
+
+        pos = np.array([actual_pose.position.x,
+                        actual_pose.position.y])
+        desired_pos = np.array([desired_pose.position.x,
+                                desired_pose.position.y])
+        to_desired = desired_pos - pos
+
+        ctl_vel = to_desired / time_step
+        ctl_speed = np.linalg.norm(ctl_vel)
+        if ctl_speed > max_speed:
+            # Enforce the max speed.
+            ctl_vel = max_speed * ctl_vel / ctl_speed
+
+        expected_next_pos = pos + time_step * ctl_vel
+        actual_next_pos = np.array([next_actual_pose.position.x,
+                                    next_actual_pose.position.y])
+        error = expected_next_pos - actual_next_pos
+
+        if np.linalg.norm(error) > thresh:
+            states.append(pos)
+            controls.append(ctl_vel)
+            errors.append(error)
+            time_steps.append(time_step)
+            print("x: {}, u: {}, e: {}, ||e||: {}, dt: {}".format(
+                states[-1], controls[-1], errors[-1],
+                np.linalg.norm(errors[-1]), time_steps[-1]))
+
+    fig, ax = plt.subplots(figsize=(10, 10))
+    ax.scatter([p.position.x for p in msg.desired_pose],
+               [p.position.y for p in msg.desired_pose],
+               marker='+', s=100, c='black', label="Desired")
+    ax.scatter([p.position.x for p in msg.actual_pose],
+               [p.position.y for p in msg.actual_pose],
+               marker='o', s=100, c='blue', alpha=0.2, label="Actual")
+    ax.quiver([s[0] for s in states],
+              [s[1] for s in states],
+              [-e[0] for e in errors],
+              [-e[1] for e in errors], color='red', alpha=0.2, label="Disturbance")
+
+    print("Before preprocessing: num states: {}".format(len(states)))
+    training_inputs, targets_x, targets_y = \
+        preprocess_training_data(states, controls, errors, time_steps)
+    print("After preprocessing: num inputs: {}".format(len(training_inputs)))
+
+    ax.scatter([z[0] for z in training_inputs],
+               [z[1] for z in training_inputs],
+               marker='+', s=150, c='green', label="Training Input ($x$)")
+    u_scale = 0.1
+    ax.quiver([z[0] for z in training_inputs],
+              [z[1] for z in training_inputs],
+              [u_scale * z[2] for z in training_inputs],
+              [u_scale * z[3] for z in training_inputs],
+              color='green', alpha=0.5, label="Training Input ($\hat{u}$)")
+    return training_inputs, targets_x, targets_y
+
+
 def from_bagfile(bagfile):
+    thresh = 0.015 # Discrepancy threshold
+    max_speed = 0.1 # m/s
+
+    states = []
+    controls = []
+    errors = []
+    time_steps = []
+
+    # For plotting.
+    desired_pos_x = []
+    desired_pos_y = []
+    actual_pos_x = []
+    actual_pos_y = []
+
+    ############################################################################
+    # First, get all the data from the bag.
+    bag = rosbag.Bag(bagfile)
+    for topic, msg, t in bag.read_messages(topics=['/exp/control_history']):
+        for i in range(len(msg.desired_pose) - 1):
+            actual_pose = msg.actual_pose[i]
+            desired_pose = msg.desired_pose[i + 1]
+            next_actual_pose = msg.actual_pose[i + 1]
+            time_step = (msg.time[i + 1] - msg.time[i]).to_sec()
+
+            desired_pos_x.append(desired_pose.position.x)
+            desired_pos_y.append(desired_pose.position.y)
+            actual_pos_x.append(actual_pose.position.x)
+            actual_pos_y.append(actual_pose.position.y)
+
+            if time_step < 1e-3 or time_step > 1.0:
+                continue
+
+            pos = np.array([actual_pose.position.x,
+                            actual_pose.position.y])
+            desired_pos = np.array([desired_pose.position.x,
+                                    desired_pose.position.y])
+            to_desired = desired_pos - pos
+
+            ctl_vel = to_desired / time_step
+            ctl_speed = np.linalg.norm(ctl_vel)
+            if ctl_speed > max_speed:
+                # Enforce the max speed.
+                ctl_vel = max_speed * ctl_vel / ctl_speed
+
+            expected_next_pos = pos + time_step * ctl_vel
+            actual_next_pos = np.array([next_actual_pose.position.x,
+                                        next_actual_pose.position.y])
+            error = expected_next_pos - actual_next_pos
+
+            if np.linalg.norm(error) > thresh:
+                states.append(pos)
+                controls.append(ctl_vel)
+                errors.append(error)
+                time_steps.append(time_step)
+                print("x: {}, u: {}, e: {}, ||e||: {}, dt: {}".format(
+                    states[-1], controls[-1], errors[-1],
+                    np.linalg.norm(errors[-1]), time_steps[-1]))
+    ############################################################################
+
+    fig, ax = plt.subplots(figsize=(10, 10))
+    ax.scatter(desired_pos_x, desired_pos_y,
+               marker='+', s=100, c='black', label="Desired")
+    ax.scatter(actual_pos_x, actual_pos_y,
+               marker='o', s=100, c='blue', alpha=0.2, label="Actual")
+    ax.quiver([s[0] for s in states],
+              [s[1] for s in states],
+              [-e[0] for e in errors],
+              [-e[1] for e in errors], color='red', alpha=0.2, label="Disturbance")
+
+    print("Before preprocessing: num states: {}".format(len(states)))
+    training_inputs, targets_x, targets_y = \
+        preprocess_training_data(states, controls, errors, time_steps)
+    print("After preprocessing: num inputs: {}".format(len(training_inputs)))
+
+    ax.scatter([z[0] for z in training_inputs],
+               [z[1] for z in training_inputs],
+               marker='+', s=150, c='green', label="Training Input ($x$)")
+    u_scale = 0.1
+    ax.quiver([z[0] for z in training_inputs],
+              [z[1] for z in training_inputs],
+              [u_scale * z[2] for z in training_inputs],
+              [u_scale * z[3] for z in training_inputs],
+              color='green', alpha=0.5, label="Training Input ($\hat{u}$)")
+
+    # Model of disturbance along the x-position.
+    disturbance_x = GPModel()
+    disturbance_x._params['D'] = 4
+    disturbance_x._params['v0'] = 1e-4
+    disturbance_x._params['v1'] = 0.001 # 1e-4 # 5e-4 # 0.1 # 1.0 # 1e-4
+    # disturbance_x._params['w'] = [0.25, 0.25, 0.75, 0.75] # [0.4, 0.4, 0.4, 0.4]
+    # disturbance_x._params['w'] = [0.1, 0.1, 0.8, 0.8]
+    # disturbance_x._params['w'] = [0.05, 0.05, 0.8, 0.8]
+    # disturbance_x._params['w'] = [0.05, 0.05, 0.05, 0.05]
+    # disturbance_x._params['w'] = [0.001, 0.001, 0.05, 0.05]
+    disturbance_x._params['w'] = 4 * [0.1] # [0.025]
+    disturbance_x.train(training_inputs, targets_x)
+
+    # Model of disturbance along the y-position.
+    disturbance_y = GPModel()
+    disturbance_y._params['D'] = 4
+    disturbance_y._params['v0'] = 1e-4
+    disturbance_y._params['v1'] = 0.001 # 1e-4 #5e-4 # 0.1 # 1.0 # 1e-4
+    # disturbance_y._params['w'] = [0.25, 0.25, 0.75, 0.75] # [0.4, 0.4, 0.4, 0.4]
+    # disturbance_y._params['w'] = [0.1, 0.1, 0.8, 0.8]
+    # disturbance_y._params['w'] = [0.05, 0.05, 0.8, 0.8]
+    # disturbance_y._params['w'] = [0.05, 0.05, 0.05, 0.05]
+    # disturbance_y._params['w'] = [0.001, 0.001, 0.05, 0.05]
+    disturbance_y._params['w'] = 4 * [0.1] # 4 * [0.025]
+    disturbance_y.train(training_inputs, targets_y)
+
+    # Dynamics.
+    time_step = 0.1
+    A = np.eye(2)
+    B = time_step * np.eye(2)
+    dyn = LinearDynamics(A, B, [disturbance_x, disturbance_y])
+
+
+    # Forward simulate and plot different actions.
+    # Scenario 1.
+    # start_state = np.array([-0.21, 0.35]).reshape((2, 1))
+    # start_state = np.array([0.09, 0.25]).reshape((2, 1))
+    # start_state = np.array([-0.2, 0.45]).reshape((2, 1))
+    # start_state = np.array([-0.21, 0.55]).reshape((2, 1))
+    # start_state = np.array([-0.3, 0.35]).reshape((2, 1))
+    # start_state = np.array([-0.4, 0.35]).reshape((2, 1))
+    # start_state = np.array([-0.1, 0.30]).reshape((2, 1))
+    # start_state = np.array([-0.1, 0.25]).reshape((2, 1))
+    # start_state = np.array([0, 0.2]).reshape((2, 1))
+
+    # start_state = np.array([-0.03, 0.19]).reshape((2, 1))
+    # start_state = np.array([-0.03, 0.35]).reshape((2, 1))
+    # start_state = np.array([-0.13, 0.35]).reshape((2, 1))
+    # start_state = np.array([0.06, 0.34]).reshape((2, 1))
+    # start_state = np.array([-0.04, 0.34]).reshape((2, 1))
+    # start_state = np.array([-0.14, 0.34]).reshape((2, 1))
+    start_state = np.array([-0.24, 0.34]).reshape((2, 1))
+    #start_state = np.array([-0.24, -0.2]).reshape((2, 1))
+    # start_state = np.array([-0.34, 0.34]).reshape((2, 1))
+    # start_state = np.array([-0.23, 0.19]).reshape((2, 1))
+    # start_state = np.array([-0.15, 0.35]).reshape((2, 1))
+
+    # center = (-0.21, 0.35) # Scenario 1
+    center = (-0.03, 0.19) # Scenario 2
+    ax.set_xlim([-0.4 + center[0], center[0] + 0.4])
+    ax.set_ylim([-0.4 + center[1], center[1] + 0.4])
+
+    controls_move_pos_x = [np.array([0.1, 0.0]).reshape((2, 1))
+                           for i in range(10)]
+    controls_move_neg_x = [np.array([-0.1, 0.0]).reshape((2, 1))
+                           for i in range(10)]
+    controls_move_pos_y = [np.array([0.0, 0.1]).reshape((2, 1))
+                           for i in range(10)]
+    controls_move_neg_y = [np.array([0.0, -0.1]).reshape((2, 1))
+                           for i in range(10)]
+
+    discrepancy_thresh = 0.075
+
+    actions = [controls_move_pos_x,
+               controls_move_neg_x,
+               controls_move_pos_y,
+               controls_move_neg_y]
+    for a in actions:
+        plot_action(
+            ax, dyn, start_state, a, time_step, discrepancy_thresh)
+
+    ax.legend()
+    plt.show()
+
+
+def from_bagfile_v0(bagfile):
     thresh = 0.015 # Discrepancy threshold
     max_speed = 0.1 # m/s
 
@@ -509,7 +779,8 @@ def from_bagfile(bagfile):
         disturbance_x._params['v0'] = 1e-4
         disturbance_x._params['v1'] = 1e-4 # 5e-4 # 0.1 # 1.0 # 1e-4
         # disturbance_x._params['w'] = [0.25, 0.25, 0.75, 0.75] # [0.4, 0.4, 0.4, 0.4]
-        disturbance_x._params['w'] = [0.1, 0.1, 0.8, 0.8]
+        # disturbance_x._params['w'] = [0.1, 0.1, 0.8, 0.8]
+        disturbance_x._params['w'] = [0.05, 0.05, 0.8, 0.8]
         disturbance_x.train(training_inputs, targets_x)
 
         # Model of disturbance along the y-position.
@@ -518,7 +789,8 @@ def from_bagfile(bagfile):
         disturbance_y._params['v0'] = 1e-4
         disturbance_y._params['v1'] = 1e-4 #5e-4 # 0.1 # 1.0 # 1e-4
         # disturbance_y._params['w'] = [0.25, 0.25, 0.75, 0.75] # [0.4, 0.4, 0.4, 0.4]
-        disturbance_y._params['w'] = [0.1, 0.1, 0.8, 0.8]
+        # disturbance_y._params['w'] = [0.1, 0.1, 0.8, 0.8]
+        disturbance_y._params['w'] = [0.05, 0.05, 0.8, 0.8]
         disturbance_y.train(training_inputs, targets_y)
 
         # Dynamics.
@@ -528,13 +800,27 @@ def from_bagfile(bagfile):
         dyn = LinearDynamics(A, B, [disturbance_x, disturbance_y])
 
         # TODO Fwd sim different actions
-        # start_state = np.array([-0.2, 0.35]).reshape((2, 1))
+        # Scenario 1.
+        # start_state = np.array([-0.21, 0.35]).reshape((2, 1))
+        # start_state = np.array([0.09, 0.25]).reshape((2, 1))
         # start_state = np.array([-0.2, 0.45]).reshape((2, 1))
+        # start_state = np.array([-0.21, 0.55]).reshape((2, 1))
         # start_state = np.array([-0.3, 0.35]).reshape((2, 1))
         # start_state = np.array([-0.4, 0.35]).reshape((2, 1))
-        start_state = np.array([-0.1, 0.30]).reshape((2, 1))
+        # start_state = np.array([-0.1, 0.30]).reshape((2, 1))
         # start_state = np.array([-0.1, 0.25]).reshape((2, 1))
         # start_state = np.array([0, 0.2]).reshape((2, 1))
+
+        # start_state = np.array([-0.03, 0.19]).reshape((2, 1))
+        start_state = np.array([-0.03, 0.35]).reshape((2, 1))
+        # start_state = np.array([-0.23, 0.19]).reshape((2, 1))
+        # start_state = np.array([-0.15, 0.35]).reshape((2, 1))
+
+        # center = (-0.21, 0.35) # Scenario 1
+        center = (-0.03, 0.19) # Scenario 2
+        ax.set_xlim([-0.4 + center[0], center[0] + 0.4])
+        ax.set_ylim([-0.4 + center[1], center[1] + 0.4])
+
         controls_move_pos_x = [np.array([0.1, 0.0]).reshape((2, 1))
                                for i in range(10)]
         controls_move_neg_x = [np.array([-0.1, 0.0]).reshape((2, 1))
@@ -574,11 +860,11 @@ def from_bagfile(bagfile):
 
 
 if __name__ == '__main__':
-    test_pred__1d_dyn_sys()
+    # test_pred__1d_dyn_sys()
     # test_pred__1d_gp()
 
-    # parser = argparse.ArgumentParser()
-    # parser.add_argument("bag")
-    # args = parser.parse_args()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("bag")
+    args = parser.parse_args()
 
-    # from_bagfile(args.bag)
+    from_bagfile(args.bag)

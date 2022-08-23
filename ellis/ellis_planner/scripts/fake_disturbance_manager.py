@@ -65,7 +65,7 @@ class FakeDisturbanceManager:
             region_msg.color.r = 1.0
             region_msg.color.g = 1.0
             region_msg.color.b = 0
-            region_msg.color.a = 0.5
+            region_msg.color.a = 0.25
             self._vis_pub.publish(region_msg)
 
             dir_msg = Marker()
@@ -85,7 +85,7 @@ class FakeDisturbanceManager:
             dir_msg.color.r = 1.0
             dir_msg.color.g = 1.0
             dir_msg.color.b = 0
-            dir_msg.color.a = 0.85
+            dir_msg.color.a = 0.5
             dir_msg.points = [Point(0, 0, 0),
                           Point(d['force']['x'], d['force']['y'], 0)]
             self._vis_pub.publish(dir_msg)

@@ -75,15 +75,17 @@ bool Environment::ExecutionErrorNeighborhood::Contains(const State::Ptr state, c
 }
 
 Environment::Environment()
-    : m_per_unit_x_(1e-2),
-      m_per_unit_y_(1e-2),
+    : m_per_unit_x_(2e-2),  // m_per_unit_x_(1e-2),
+      m_per_unit_y_(2e-2),  // m_per_unit_y_(1e-2),
       rad_per_unit_yaw_(8e-2),
       goal_x_(0.0),
       goal_y_(0.0),
       goal_yaw_(0.0),
       goal_pos_tol_(1e-1),
       goal_ang_tol_(1e-1),
-      use_weighted_penalty_(false) {
+      use_weighted_penalty_(false),
+      dynamics_(nullptr),
+      nominal_lin_vel_(0.1) {
   // Robot is about 0.32 m x 0.32 m (TODO(eratner) shouldn't hard code this).
   robot_collision_object_ = new RectangleCollisionObject("robot", 0.0, 0.0, 0.0, 0.4, 0.4);
 }
@@ -115,8 +117,9 @@ State::Ptr Environment::GetState(unsigned int state_id) {
 }
 
 State::Ptr Environment::GetState(double x, double y, double yaw) {
-  DiscreteState key(static_cast<int>(x / m_per_unit_x_), static_cast<int>(y / m_per_unit_y_),
-                    static_cast<int>(yaw / rad_per_unit_yaw_));
+  // std::fesetround(FE_TONEAREST);
+  DiscreteState key(std::nearbyint(x / m_per_unit_x_), std::nearbyint(y / m_per_unit_y_),
+                    std::nearbyint(yaw / rad_per_unit_yaw_));
   auto it = discrete_state_to_id_.find(key);
   State::Ptr state = nullptr;
   if (it == discrete_state_to_id_.end()) {
@@ -208,10 +211,12 @@ std::tuple<State::Ptr, double> Environment::GetOutcome(const State::Ptr state, c
   }
 
   double cost = action.cost_;
-  if (UseWeightedPenalty())
-    cost += GetWeightedPenalty(state, action);
-  else
-    cost += GetPenalty(state, action);
+  // TODO(eratner) Clean this up
+  // if (UseWeightedPenalty())
+  //   cost += GetWeightedPenalty(state, action);
+  // else
+  //   cost += GetPenalty(state, action);
+  cost += GetControlLevelPenalty(state, action);
 
   auto outcome = GetState(x, y, yaw);
   return std::make_tuple(outcome, cost);
@@ -221,6 +226,7 @@ double Environment::GetHeuristicCostToGoal(const State::Ptr state) const {
   if (IsGoal(state)) return 0;
 
   // TODO(eratner) Because of goal tolerances, this could slightly overestimate the cost
+  // return 0.0;
   return (std::abs(goal_x_ - state->GetX()) + std::abs(goal_y_ - state->GetY()));
 }
 
@@ -381,6 +387,82 @@ std::string Environment::CollisionTestFunc(double x, double y, double yaw) {
   if (!collision) s << " no collisions";
   return s.str();
 }
+
+void Environment::SetDynamics(LinearDynamics<2, 2>* dynamics) { dynamics_ = dynamics; }
+
+LinearDynamics<2, 2>* Environment::GetDynamics() { return dynamics_; }
+
+std::vector<Eigen::Vector2d> Environment::GetOpenLoopControls(const State::Ptr state, const Action& action) const {
+  const double time_step = dynamics_->GetB()(0, 0);  // TODO(eratner) Maybe a better way to get the time step
+
+  Eigen::Vector2d start_state, end_state;
+  start_state << state->GetX(), state->GetY();
+  end_state << state->GetX() + action.change_in_x_, state->GetY() + action.change_in_y_;
+
+  Eigen::Vector2d start_to_end = end_state - start_state;
+  double dist = start_to_end.norm();
+
+  // TODO(eratner) HACK
+  const double nominal_speed = 0.1;
+  Eigen::Vector2d ctl = nominal_speed * start_to_end / dist;
+
+  return std::vector<Eigen::Vector2d>(static_cast<int>(dist / (nominal_speed * time_step)), ctl);
+
+  // Eigen::Vector2d ctl = nominal_lin_vel_ * start_to_end / dist;
+
+  // return std::vector<Eigen::Vector2d>(static_cast<int>(dist / (nominal_lin_vel_ * time_step)), ctl);
+}
+
+double Environment::GetControlLevelPenalty(const State::Ptr state, const Action& action,
+                                           unsigned int num_samples) const {
+  if (!dynamics_ || dynamics_->GetDisturbances()[0].GetNumTrainingInputs() == 0) return 0.0;
+
+  if (std::abs(action.change_in_x_) < 1e-6 && std::abs(action.change_in_y_) < 1e-6) return 0.0;
+
+  auto controls = GetOpenLoopControls(state, action);
+
+  Eigen::Vector2d start_state;
+  start_state << state->GetX(), state->GetY();
+
+  Eigen::Vector2d end_state;
+  end_state << state->GetX() + action.change_in_x_, state->GetY() + action.change_in_y_;
+
+  std::vector<Eigen::Vector2d> pred_mean;
+  std::vector<Eigen::Matrix<double, 2, 2>> pred_cov;
+  dynamics_->Predict(start_state, controls, pred_mean, pred_cov);
+
+  auto samples = MultivariateNormal<2>::Sample(pred_mean.back(), pred_cov.back(), num_samples);
+
+  const double discrepancy_thresh = 0.075;  // TODO(eratner) Make a parameter
+  int count = 0;
+  for (const auto& sample : samples) {
+    double error = (end_state - sample).norm();
+    if (error > discrepancy_thresh) {
+      count++;
+    }
+  }
+  double prob_discr = static_cast<double>(count) / num_samples;
+
+  return (prob_discr * exec_error_params_.penalty_);
+}
+
+void Environment::PredictTrajectory(const State::Ptr state, const Action& action,
+                                    std::vector<Eigen::Vector2d>& pred_mean,
+                                    std::vector<Eigen::Matrix<double, 2, 2>>& pred_cov) const {
+  auto controls = GetOpenLoopControls(state, action);
+
+  Eigen::Vector2d start_state;
+  start_state << state->GetX(), state->GetY();
+
+  Eigen::Vector2d end_state;
+  end_state << state->GetX() + action.change_in_x_, state->GetY() + action.change_in_y_;
+
+  dynamics_->Predict(start_state, controls, pred_mean, pred_cov);
+}
+
+double Environment::GetNominalLinVel() const { return nominal_lin_vel_; }
+
+void Environment::SetNominalLinVel(double vel) { nominal_lin_vel_ = vel; }
 
 std::ostream& operator<<(std::ostream& os, const Environment::Action& action) {
   os << "{name: " << action.name_ << ", change_in_x: " << action.change_in_x_

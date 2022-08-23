@@ -92,6 +92,16 @@ std::array<GP<StateDim + ControlDim>, StateDim>& LinearDynamics<StateDim, Contro
   return disturbance_;
 }
 
+template <unsigned int StateDim, unsigned int ControlDim>
+const Eigen::Matrix<double, StateDim, StateDim>& LinearDynamics<StateDim, ControlDim>::GetA() const {
+  return A_;
+}
+
+template <unsigned int StateDim, unsigned int ControlDim>
+const Eigen::Matrix<double, StateDim, ControlDim>& LinearDynamics<StateDim, ControlDim>::GetB() const {
+  return B_;
+}
+
 }  // namespace ellis_planner
 
 #endif  // ELLIS_PLANNER_LINEAR_DYNAMICS_IMPL_HXX_

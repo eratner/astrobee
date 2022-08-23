@@ -3,12 +3,25 @@
 #define ELLIS_PLANNER_GP_IMPL_HXX_
 
 #include <vector>
+#include <string>
 
 namespace ellis_planner {
 
 template <unsigned int InputDim>
 GP<InputDim>::Parameters::Parameters() : v0_(1e-2), v1_(1.0) {
   for (unsigned int i = 0; i < InputDim; ++i) weights_[i] = 1.0;
+}
+
+template <unsigned int InputDim>
+std::string GP<InputDim>::Parameters::ToYaml() const {
+  std::stringstream s;
+  s << "{v0: " << v0_ << ", v1: " << v1_ << ", weights: [";
+  for (unsigned int i = 0; i < weights_.size(); ++i) {
+    s << weights_[i];
+    if (i < weights_.size() - 1) s << ", ";
+  }
+  s << "]}";
+  return s.str();
 }
 
 template <unsigned int InputDim>
@@ -130,6 +143,11 @@ Eigen::Matrix<double, InputDim, InputDim> GP<InputDim>::GetSecondDerivOfVarFunc(
 template <unsigned int InputDim>
 typename GP<InputDim>::Parameters& GP<InputDim>::GetParameters() {
   return params_;
+}
+
+template <unsigned int InputDim>
+unsigned int GP<InputDim>::GetNumTrainingInputs() const {
+  return training_inputs_.size();
 }
 
 }  // namespace ellis_planner

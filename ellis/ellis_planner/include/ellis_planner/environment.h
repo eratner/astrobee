@@ -4,6 +4,7 @@
 
 #include <ellis_planner/state.h>
 #include <ellis_planner/rectangle_collision_object.h>
+#include <ellis_planner/linear_dynamics.h>
 #include <ellis_planner/normal_dist.h>
 #include <ellis_planner/ReportExecutionError.h>
 #include <boost/functional/hash.hpp>
@@ -11,6 +12,8 @@
 #include <unordered_map>
 #include <tuple>
 #include <string>
+#include <cmath>
+// #include <cfenv> // TODO(eratner) Prohibited header?
 
 namespace ellis_planner {
 
@@ -86,7 +89,7 @@ class Environment {
 
   void AddCollisionObject(CollisionObject::Ptr col);
 
-  const std::vector<CollisionObject::Ptr> &GetCollisionObjects();
+  const std::vector<CollisionObject::Ptr>& GetCollisionObjects();
 
   void ClearCollisionObjects();
 
@@ -132,6 +135,21 @@ class Environment {
 
   std::string CollisionTestFunc(double x, double y, double yaw);
 
+  void SetDynamics(LinearDynamics<2, 2>* dynamics);
+
+  LinearDynamics<2, 2>* GetDynamics();
+
+  std::vector<Eigen::Vector2d> GetOpenLoopControls(const State::Ptr state, const Action& action) const;
+
+  double GetControlLevelPenalty(const State::Ptr state, const Action& action, unsigned int num_samples = 1000) const;
+
+  void PredictTrajectory(const State::Ptr state, const Action& action, std::vector<Eigen::Vector2d>& pred_mean,
+                         std::vector<Eigen::Matrix<double, 2, 2>>& pred_cov) const;
+
+  double GetNominalLinVel() const;
+
+  void SetNominalLinVel(double vel);
+
  private:
   // Discretization parameters.
   double m_per_unit_x_;      // Meters/unit in x (discretization of x).
@@ -165,6 +183,10 @@ class Environment {
   std::vector<ExecutionErrorNeighborhood> exec_error_neighborhoods_;
 
   bool use_weighted_penalty_;
+
+  // Dynamics model.
+  LinearDynamics<2, 2>* dynamics_;
+  double nominal_lin_vel_;
 };
 
 std::ostream& operator<<(std::ostream& os, const Environment::Action& action);

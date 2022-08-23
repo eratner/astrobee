@@ -2,7 +2,7 @@
 <launch>
   <!-- Load experiment parameters. -->
   <rosparam command="load"
-            file="$(find ellis_planner)/config/experiment_sim.yaml" />
+            file="$(find ellis_planner)/config/experiment_sim_scenario_2.yaml" />
 
   <!-- Record data to ROS bag. -->
   <node pkg="rosbag"

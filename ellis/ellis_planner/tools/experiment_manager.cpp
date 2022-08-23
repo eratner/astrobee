@@ -229,6 +229,15 @@ class ExperimentManager {
           break;
         }
         case REPLAN_NEEDED: {
+          // Change to the specified planner.
+          cfg_.Set<std::string>("planner", planner_type_[waypoint_index_ - 1]);
+          if (!cfg_.Reconfigure()) {
+            ROS_ERROR_STREAM("[ExperimentManager] Could change planner type to \"" << planner_type_[waypoint_index_ - 1]
+                                                                                   << "\"!");
+            state_ = ERROR;
+            break;
+          }
+
           const auto& waypoint = waypoint_[waypoint_index_ - 1];
           ROS_INFO_STREAM("Replanning to waypoint " << waypoint_index_ - 1 << ": (" << waypoint[0] << ", "
                                                     << waypoint[1] << ", " << waypoint[2] << ")");
@@ -255,6 +264,28 @@ class ExperimentManager {
   }
 
  private:
+  bool ZeroYaw() {
+    ROS_INFO("[ExperimentManager] Zeroing yaw...");
+    double curr_x, curr_y, curr_z, curr_yaw;
+    if (!GetPose(curr_x, curr_y, curr_z, curr_yaw)) {
+      ROS_ERROR("[ExperimentManager] Failed to get robot's current pose!");
+      return false;
+    }
+
+    if (std::abs(curr_yaw) < 1e-3) {
+      ROS_WARN_STREAM("[ExperimentManager] Robot's current yaw (" << curr_yaw << ") is close enough to zero!");
+      return true;
+    }
+
+    cfg_.Set<std::string>("planner", "trapezoidal");
+    if (!cfg_.Reconfigure()) {
+      ROS_ERROR("[ExperimentManager] Could not change to trapezoidal planner!");
+      return false;
+    }
+
+    return MoveTo(curr_x, curr_y, 0.0);
+  }
+
   bool MoveTo(double x, double y, double yaw = 0.0) {
     // Get the robot's current pose.
     double curr_x, curr_y, curr_z, curr_yaw;
@@ -391,6 +422,8 @@ class ExperimentManager {
         report.request.action_dir_yaw = -1.0;
     }
 
+    report.request.control_history = control_history_;
+
     // Report the execution error.
     if (!report_execution_error_client_.call(report)) {
       ROS_ERROR("[ExperimentManager] Failed to call service to report an execution error");
@@ -458,6 +491,13 @@ class ExperimentManager {
               state_ = ERROR;
             }
 
+            // TODO(eratner) A little hacky
+            ZeroYaw();
+            control_feedback_history_.clear();
+            control_history_.desired_pose.clear();
+            control_history_.actual_pose.clear();
+
+
             // for (const auto& f : control_feedback_history_) {
             //   ROS_WARN_STREAM("  pos err: " << f.error_position << ", att err: " << f.error_attitude << ", x: "
             //                                 << f.setpoint.pose.position.x << ", y: " << f.setpoint.pose.position.y
@@ -512,6 +552,7 @@ class ExperimentManager {
                                           << "), yaw: " << actual_yaw << ", err pos: " << err_pos);
     }
 
+    control_history_.time.push_back(feedback->progress.setpoint.when);
     control_history_.desired_pose.push_back(feedback->progress.setpoint.pose);
     geometry_msgs::Pose actual_pose;
     actual_pose.position.x = actual_x;

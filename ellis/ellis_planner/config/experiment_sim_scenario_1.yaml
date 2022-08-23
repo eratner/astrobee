@@ -1,0 +1,43 @@
+# Command: roslaunch astrobee sim.launch dds:=false robot:=sim_pub rviz:=true world:="granite" pose:="-0.45 0.35 -0.7 0 0 0 1"
+experiment_manager:
+  waypoints:
+    - x: -0.45
+      y: 0.35
+      yaw: 0.0
+      # planner: ellis
+    - x: 0.7
+      y: 0.35
+      yaw: 0.0
+      planner: ellis
+
+  obstacles: []
+
+fake_obstacle_manager:
+  freq: 10.0
+  world_frame_id: world
+  gazebo_ns: /gazebo
+  topics:
+    vis: /mob/ellis_planner/vis
+  obstacles:
+    - name: obs1
+      size:
+        x: 0.1
+        y: 0.45 # 0.6
+        z: 0.1
+      pose:
+        pos:
+          x: 0
+          y: 0.3
+          z: -0.674614
+        orien:
+          roll: 0
+          pitch: 0
+          yaw: 0
+
+fake_disturbance_manager:
+  world_frame_id: world
+  body_frame_id: body
+  gazebo_ns: /gazebo
+  topics:
+    vis: /mob/ellis_planner/vis
+  disturbances: []
