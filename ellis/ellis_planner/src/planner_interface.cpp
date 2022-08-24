@@ -103,23 +103,28 @@ bool PlannerInterface::InitializePlanner(ros::NodeHandle* nh) {
   const double time_step = 0.1;  // TODO(eratner) Read from config
   Eigen::Matrix<double, 2, 2> A = Eigen::Matrix<double, 2, 2>::Identity();
   Eigen::Matrix<double, 2, 2> B = time_step * Eigen::Matrix<double, 2, 2>::Identity();
-  dynamics_ = new LinearDynamics<2, 2>(A, B);
+  Eigen::Matrix<double, 2, 2> Bd = time_step * Eigen::Matrix<double, 2, 2>::Identity();
+  dynamics_ = new LinearDynamics<2, 2>(A, B, Bd);
   env_.SetDynamics(dynamics_);
 
   // TODO(eratner) Read GP parameters from config
   dynamics_->GetDisturbances()[0].GetParameters().v0_ = 1e-4;
-  dynamics_->GetDisturbances()[0].GetParameters().v1_ = 1e-4;
-  dynamics_->GetDisturbances()[0].GetParameters().weights_ =  // {0.1, 0.1, 0.8, 0.8};
-                                                              // {0.01, 0.01, 0.8, 0.8};
+  dynamics_->GetDisturbances()[0].GetParameters().v1_ = 0.001;  // 1e-4;
+  dynamics_->GetDisturbances()[0].GetParameters().weights_ =    // {0.1, 0.1, 0.8, 0.8};
+                                                                // {0.01, 0.01, 0.8, 0.8};
     // {0.05, 0.05, 0.8, 0.8};
-    {0.05, 0.05, 0.05, 0.05};
+    // {0.05, 0.05, 0.05, 0.05};
+    {0.1, 0.1, 0.1, 0.1};
+  // {0.2, 0.2, 0.2, 0.2};
   NODELET_ERROR_STREAM("x disturbance GP params: " << dynamics_->GetDisturbances()[0].GetParameters().ToYaml());
   dynamics_->GetDisturbances()[1].GetParameters().v0_ = 1e-4;
-  dynamics_->GetDisturbances()[1].GetParameters().v1_ = 1e-4;
-  dynamics_->GetDisturbances()[1].GetParameters().weights_ =  // {0.1, 0.1, 0.8, 0.8};
-                                                              // {0.01, 0.01, 0.8, 0.8};
+  dynamics_->GetDisturbances()[1].GetParameters().v1_ = 0.001;  // 1e-4;
+  dynamics_->GetDisturbances()[1].GetParameters().weights_ =    // {0.1, 0.1, 0.8, 0.8};
+                                                                // {0.01, 0.01, 0.8, 0.8};
     // {0.05, 0.05, 0.8, 0.8};
-    {0.05, 0.05, 0.05, 0.05};
+    // {0.05, 0.05, 0.05, 0.05};
+    {0.1, 0.1, 0.1, 0.1};
+  // {0.2, 0.2, 0.2, 0.2};
   NODELET_ERROR_STREAM("y disturbance GP params: " << dynamics_->GetDisturbances()[1].GetParameters().ToYaml());
 
   return true;
@@ -660,6 +665,7 @@ bool PlannerInterface::ReportExecutionError(ReportExecutionError::Request& req, 
     std::vector<Eigen::Vector2d> states;
     std::vector<Eigen::Vector2d> controls;
     std::vector<Eigen::Vector2d> errors;
+    std::vector<double> time_steps;
     const double max_speed = 0.1;       // Max speed (m/s) TODO(eratner) Make this a parameter
     const double error_thresh = 0.015;  // TODO(eratner) Make this a parameter
     NODELET_ERROR("## Before pre-processing: ");
@@ -691,15 +697,16 @@ bool PlannerInterface::ReportExecutionError(ReportExecutionError::Request& req, 
         states.push_back(pos);
         controls.push_back(ctl_vel);
         errors.push_back(error);
+        time_steps.push_back(time_step);
         NODELET_ERROR_STREAM("  x: " << states.back().transpose() << ", u: " << controls.back().transpose()
                                      << ", e: " << errors.back().transpose() << ", ||e||" << errors.back().norm()
-                                     << ", time_step: " << time_step);
+                                     << ", time_step: " << time_steps.back());
       }
     }
 
     std::vector<Eigen::Vector4d> training_inputs;
     std::vector<double> targets_x, targets_y;
-    PreprocessTrainingData(states, controls, errors, training_inputs, targets_x, targets_y);
+    PreprocessTrainingData(states, controls, errors, time_steps, training_inputs, targets_x, targets_y);
     NODELET_ERROR_STREAM("After preprocessing, " << training_inputs.size() << " training examples");
 
     // Update the GPs with the new training data.
@@ -759,24 +766,25 @@ bool PlannerInterface::ReportExecutionError(ReportExecutionError::Request& req, 
 void PlannerInterface::PreprocessTrainingData(const std::vector<Eigen::Vector2d>& states,
                                               const std::vector<Eigen::Vector2d>& controls,
                                               const std::vector<Eigen::Vector2d>& errors,
+                                              const std::vector<double>& time_steps,
                                               std::vector<Eigen::Vector4d>& training_inputs,
                                               std::vector<double>& targets_x, std::vector<double>& targets_y) {
-  const unsigned int burn = 10;         // TODO(eratner) Make this a parameter
+  const unsigned int burn = 0;          // 10;         // TODO(eratner) Make this a parameter
   const double min_state_dist = 0.001;  // TODO(eratner) Make this a parameter
   const double min_target_dist = 0.025;
   for (unsigned int i = burn; i < states.size(); ++i) {
     bool accept = true;
-    for (unsigned int j = 0; j < training_inputs.size(); ++j) {
-      const auto& z = training_inputs[j];
-      if ((states[i] - z.block<2, 1>(0, 0)).norm() < min_state_dist) {
-        double diff_x = std::abs(-errors[i](0) - targets_x[j]);
-        double diff_y = std::abs(-errors[i](1) - targets_y[j]);
-        if (diff_x < min_target_dist && diff_y < min_target_dist) {
-          accept = false;
-          break;
-        }
-      }
-    }
+    // for (unsigned int j = 0; j < training_inputs.size(); ++j) {
+    //   const auto& z = training_inputs[j];
+    //   if ((states[i] - z.block<2, 1>(0, 0)).norm() < min_state_dist) {
+    //     double diff_x = std::abs(-errors[i](0) / time_steps[i] - targets_x[j]);
+    //     double diff_y = std::abs(-errors[i](1) / time_steps[i] - targets_y[j]);
+    //     if (diff_x < min_target_dist && diff_y < min_target_dist) {
+    //       accept = false;
+    //       break;
+    //     }
+    //   }
+    // }
 
     if (accept) {
       Eigen::Vector4d z;
@@ -784,8 +792,8 @@ void PlannerInterface::PreprocessTrainingData(const std::vector<Eigen::Vector2d>
       // z.block<2, 1>(2, 0) = controls[i] / controls[i].norm();
       z.block<2, 1>(2, 0) = controls[i];
       training_inputs.push_back(z);
-      targets_x.push_back(-errors[i](0));
-      targets_y.push_back(-errors[i](1));
+      targets_x.push_back(-errors[i](0) / time_steps[i]);
+      targets_y.push_back(-errors[i](1) / time_steps[i]);
     }
   }
 }

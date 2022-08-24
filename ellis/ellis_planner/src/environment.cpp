@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include <sstream>
+#include <algorithm>
 
 namespace ellis_planner {
 
@@ -218,7 +219,9 @@ std::tuple<State::Ptr, double> Environment::GetOutcome(const State::Ptr state, c
   //   cost += GetPenalty(state, action);
 
   if (UseControlLevelPenalty()) {
-    cost += GetControlLevelPenalty(state, action);
+    // cost += GetControlLevelPenalty(state, action);
+    // TODO(eratner) This seems sort of hacky, should look into this further
+    cost += std::max(GetControlLevelPenalty(state, action), GetPenalty(state, action));
   } else {
     cost += GetPenalty(state, action);
   }
@@ -411,7 +414,9 @@ std::vector<Eigen::Vector2d> Environment::GetOpenLoopControls(const State::Ptr s
   const double nominal_speed = 0.1;
   Eigen::Vector2d ctl = nominal_speed * start_to_end / dist;
 
-  return std::vector<Eigen::Vector2d>(static_cast<int>(dist / (nominal_speed * time_step)), ctl);
+  return std::vector<Eigen::Vector2d>(std::nearbyint(dist / (nominal_speed * time_step)), ctl);
+
+  // return std::vector<Eigen::Vector2d>(static_cast<int>(dist / (nominal_speed * time_step)), ctl);
 
   // Eigen::Vector2d ctl = nominal_lin_vel_ * start_to_end / dist;
 

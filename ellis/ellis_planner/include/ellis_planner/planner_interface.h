@@ -67,8 +67,9 @@ class PlannerInterface : public planner::PlannerImplementation {
   bool ReportExecutionError(ReportExecutionError::Request& req, ReportExecutionError::Response& res);
 
   void PreprocessTrainingData(const std::vector<Eigen::Vector2d>& states, const std::vector<Eigen::Vector2d>& controls,
-                              const std::vector<Eigen::Vector2d>& errors, std::vector<Eigen::Vector4d>& training_inputs,
-                              std::vector<double>& targets_x, std::vector<double>& targets_y);
+                              const std::vector<Eigen::Vector2d>& errors, const std::vector<double>& time_steps,
+                              std::vector<Eigen::Vector4d>& training_inputs, std::vector<double>& targets_x,
+                              std::vector<double>& targets_y);
 
   void PublishExecutionErrorNeighborhoodMarkers();
 

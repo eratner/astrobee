@@ -8,8 +8,9 @@ namespace ellis_planner {
 
 template <unsigned int StateDim, unsigned int ControlDim>
 LinearDynamics<StateDim, ControlDim>::LinearDynamics(const Eigen::Matrix<double, StateDim, StateDim>& A,
-                                                     const Eigen::Matrix<double, StateDim, ControlDim>& B)
-    : A_(A), B_(B) {}
+                                                     const Eigen::Matrix<double, StateDim, ControlDim>& B,
+                                                     const Eigen::Matrix<double, StateDim, StateDim>& Bd)
+    : A_(A), B_(B), Bd_(Bd) {}
 
 template <unsigned int StateDim, unsigned int ControlDim>
 LinearDynamics<StateDim, ControlDim>::~LinearDynamics() {}
@@ -17,6 +18,7 @@ LinearDynamics<StateDim, ControlDim>::~LinearDynamics() {}
 template <unsigned int StateDim, unsigned int ControlDim>
 typename LinearDynamics<StateDim, ControlDim>::StateVec LinearDynamics<StateDim, ControlDim>::Step(
   const StateVec& x, const ControlVec& u) const {
+  // TODO(eratner) Optionally add disturbance
   return (A_ * x + B_ * u);
 }
 
@@ -48,6 +50,8 @@ void LinearDynamics<StateDim, ControlDim>::Predict(const StateVec& start_state, 
       d_mean(i) = disturbance_[i].MeanFunc(mean);
     }
 
+    d_mean.template block<StateDim, 1>(0, 0) = Bd_ * d_mean.template block<StateDim, 1>(0, 0);
+
     // std::cout << "A_z: \n" << A_z << std::endl;
     // std::cout << "mean: \n" << mean << std::endl;
     Eigen::Matrix<double, StateDim + ControlDim, 1> next_mean = A_z * mean + d_mean;
@@ -61,6 +65,9 @@ void LinearDynamics<StateDim, ControlDim>::Predict(const StateVec& start_state, 
       for (unsigned int i = 0; i < StateDim; ++i) {
         next_cov(i, i) = disturbance_[i].VarFunc(mean);
       }
+
+      next_cov.template block<StateDim, StateDim>(0, 0) =
+        Bd_ * next_cov.template block<StateDim, StateDim>(0, 0) * Bd_.transpose();
     } else {
       // Recursive case.
       next_cov = A_z * cov * A_z.transpose();
@@ -75,6 +82,8 @@ void LinearDynamics<StateDim, ControlDim>::Predict(const StateVec& start_state, 
         Eigen::Matrix<double, StateDim + ControlDim, 1> deriv_mean = disturbance.GetFirstDerivOfMeanFunc(mean);
         V(i, i) += (deriv_mean.transpose() * cov * deriv_mean);
       }
+
+      V.template block<StateDim, StateDim>(0, 0) = Bd_ * V.template block<StateDim, StateDim>(0, 0) * Bd_.transpose();
 
       next_cov += V;
     }
@@ -100,6 +109,11 @@ const Eigen::Matrix<double, StateDim, StateDim>& LinearDynamics<StateDim, Contro
 template <unsigned int StateDim, unsigned int ControlDim>
 const Eigen::Matrix<double, StateDim, ControlDim>& LinearDynamics<StateDim, ControlDim>::GetB() const {
   return B_;
+}
+
+template <unsigned int StateDim, unsigned int ControlDim>
+const Eigen::Matrix<double, StateDim, StateDim>& LinearDynamics<StateDim, ControlDim>::GetBd() const {
+  return Bd_;
 }
 
 }  // namespace ellis_planner

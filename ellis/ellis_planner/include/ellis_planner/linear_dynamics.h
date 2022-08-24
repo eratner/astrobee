@@ -16,7 +16,8 @@ class LinearDynamics {
 
   explicit LinearDynamics(
     const Eigen::Matrix<double, StateDim, StateDim>& A = Eigen::Matrix<double, StateDim, StateDim>::Identity(),
-    const Eigen::Matrix<double, StateDim, ControlDim>& B = Eigen::Matrix<double, StateDim, ControlDim>::Identity());
+    const Eigen::Matrix<double, StateDim, ControlDim>& B = Eigen::Matrix<double, StateDim, ControlDim>::Identity(),
+    const Eigen::Matrix<double, StateDim, StateDim>& Bd = Eigen::Matrix<double, StateDim, StateDim>::Identity());
 
   ~LinearDynamics();
 
@@ -25,15 +26,18 @@ class LinearDynamics {
   void Predict(const StateVec& start_state, const std::vector<ControlVec>& controls, std::vector<StateVec>& pred_mean,
                std::vector<Eigen::Matrix<double, StateDim, StateDim>>& pred_cov);
 
-  std::array<GP<StateDim + ControlDim>, StateDim> &GetDisturbances();
+  std::array<GP<StateDim + ControlDim>, StateDim>& GetDisturbances();
 
-  const Eigen::Matrix<double, StateDim, StateDim> &GetA() const;
+  const Eigen::Matrix<double, StateDim, StateDim>& GetA() const;
 
-  const Eigen::Matrix<double, StateDim, ControlDim> &GetB() const;
+  const Eigen::Matrix<double, StateDim, ControlDim>& GetB() const;
+
+  const Eigen::Matrix<double, StateDim, StateDim> &GetBd() const;
 
  private:
   Eigen::Matrix<double, StateDim, StateDim> A_;
   Eigen::Matrix<double, StateDim, ControlDim> B_;
+  Eigen::Matrix<double, StateDim, StateDim> Bd_;
   std::array<GP<StateDim + ControlDim>, StateDim> disturbance_;
 };
 
