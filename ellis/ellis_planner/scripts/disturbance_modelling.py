@@ -348,7 +348,8 @@ def preprocess_training_data(states, controls, errors, time_steps):
     targets_x = []
     targets_y = []
 
-    burn = 10
+    # burn = 10
+    burn = 0
 
     for x, u, e, t in zip(states[burn:], controls[burn:], errors[burn:], time_steps[burn:]):
         ok = True
@@ -378,6 +379,50 @@ def preprocess_training_data(states, controls, errors, time_steps):
             targets_y.append(-e[1] / t)
 
     return training_inputs, targets_x, targets_y
+
+
+def get_discrepancy_probability(
+        dyn, start_state, controls, time_step, discrepancy_thresh, num_samples=1000):
+    last_desired = start_state.reshape((2, 1))
+    for u in controls:
+        last_desired = dyn.step(last_desired, u, disturbance=False)
+
+    pred_mean, pred_cov = dyn.predict(start_state, controls)
+
+    x_ends = np.random.multivariate_normal(
+        mean=pred_mean[-1].flatten(), cov=pred_cov[-1], size=num_samples)
+
+    num_x_ends_disc = 0
+    for i in range(num_samples):
+        x_end = x_ends[i]
+        err = np.linalg.norm(last_desired.flatten() - x_end.flatten())
+        if err > discrepancy_thresh:
+            num_x_ends_disc += 1
+
+    return (1.0 * num_x_ends_disc / num_samples)
+
+
+def plot_discrepancy_probabilities(
+        ax, dyn, x_range, num_samples_x, y_range, num_samples_y,
+        controls, time_step, discrepancy_thresh):
+    x, y = np.meshgrid(np.linspace(x_range[0], x_range[1], num_samples_x),
+                       np.linspace(y_range[0], y_range[1], num_samples_y))
+
+    p = np.zeros((num_samples_x, num_samples_y))
+    ten_pct = int(0.1 * num_samples_x * num_samples_y)
+    k = 0
+    for i in range(num_samples_x):
+        for j in range(num_samples_y):
+            start_state = np.array([x[i, j], y[i, j]])
+            p[i, j] = get_discrepancy_probability(
+                dyn, start_state, controls, time_step, discrepancy_thresh)
+
+            k += 1
+            if k % ten_pct == 0:
+                pct = 100.0 * k / (num_samples_x * num_samples_y)
+                print("{}% done...".format(pct))
+
+    return ax.pcolormesh(x, y, p, cmap='RdBu', vmin=0.0, vmax=1.0, alpha=0.25)
 
 
 def plot_action(ax, dyn, start_state, controls, time_step, discrepancy_thresh):
@@ -526,7 +571,8 @@ def msg_to_training_data(msg, thresh, max_speed):
 
 
 def from_bagfile(bagfile):
-    thresh = 0.015 # Discrepancy threshold
+    thresh = 0.005
+    # thresh = 0.015 # Discrepancy threshold
     max_speed = 0.1 # m/s
 
     states = []
@@ -613,27 +659,33 @@ def from_bagfile(bagfile):
     # Model of disturbance along the x-position.
     disturbance_x = GPModel()
     disturbance_x._params['D'] = 4
-    disturbance_x._params['v0'] = 1e-4
+    disturbance_x._params['v0'] = 1e-4 # 1e-4
     disturbance_x._params['v1'] = 0.001 # 1e-4 # 5e-4 # 0.1 # 1.0 # 1e-4
     # disturbance_x._params['w'] = [0.25, 0.25, 0.75, 0.75] # [0.4, 0.4, 0.4, 0.4]
     # disturbance_x._params['w'] = [0.1, 0.1, 0.8, 0.8]
     # disturbance_x._params['w'] = [0.05, 0.05, 0.8, 0.8]
     # disturbance_x._params['w'] = [0.05, 0.05, 0.05, 0.05]
     # disturbance_x._params['w'] = [0.001, 0.001, 0.05, 0.05]
-    disturbance_x._params['w'] = 4 * [0.1] # [0.025]
+    # disturbance_x._params['w'] = 4 * [0.1] # [0.025]
+    disturbance_x._params['w'] = 4 * [0.175]
+    # disturbance_x._params['w'] = [0.25, 0.25, 0.1, 0.1]
+    # disturbance_x._params['w'] = [0.15, 0.15, 0.05, 0.05]
     disturbance_x.train(training_inputs, targets_x)
 
     # Model of disturbance along the y-position.
     disturbance_y = GPModel()
     disturbance_y._params['D'] = 4
-    disturbance_y._params['v0'] = 1e-4
+    disturbance_y._params['v0'] = 1e-4 #1e-4
     disturbance_y._params['v1'] = 0.001 # 1e-4 #5e-4 # 0.1 # 1.0 # 1e-4
     # disturbance_y._params['w'] = [0.25, 0.25, 0.75, 0.75] # [0.4, 0.4, 0.4, 0.4]
     # disturbance_y._params['w'] = [0.1, 0.1, 0.8, 0.8]
     # disturbance_y._params['w'] = [0.05, 0.05, 0.8, 0.8]
     # disturbance_y._params['w'] = [0.05, 0.05, 0.05, 0.05]
     # disturbance_y._params['w'] = [0.001, 0.001, 0.05, 0.05]
-    disturbance_y._params['w'] = 4 * [0.1] # 4 * [0.025]
+    # disturbance_y._params['w'] = 4 * [0.1] # 4 * [0.025]
+    disturbance_y._params['w'] = 4 * [0.175]
+    # disturbance_y._params['w'] = [0.25, 0.25, 0.1, 0.1]
+    # disturbance_y._params['w'] = [0.15, 0.15, 0.05, 0.05]
     disturbance_y.train(training_inputs, targets_y)
 
     # Dynamics.
@@ -641,7 +693,6 @@ def from_bagfile(bagfile):
     A = np.eye(2)
     B = time_step * np.eye(2)
     dyn = LinearDynamics(A, B, [disturbance_x, disturbance_y])
-
 
     # Forward simulate and plot different actions.
     # Scenario 1.
@@ -658,12 +709,13 @@ def from_bagfile(bagfile):
     # start_state = np.array([-0.03, 0.19]).reshape((2, 1))
     # start_state = np.array([-0.03, 0.35]).reshape((2, 1))
     # start_state = np.array([-0.13, 0.35]).reshape((2, 1))
-    start_state = np.array([0.06, 0.34]).reshape((2, 1))
+    # start_state = np.array([0.06, 0.34]).reshape((2, 1))
+    # start_state = np.array([-0.3, 0.5]).reshape((2, 1))
     # start_state = np.array([-0.04, 0.34]).reshape((2, 1))
     # start_state = np.array([-0.14, 0.34]).reshape((2, 1))
     # start_state = np.array([-0.24, 0.34]).reshape((2, 1))
-    #start_state = np.array([-0.24, -0.2]).reshape((2, 1))
-    # start_state = np.array([-0.34, 0.34]).reshape((2, 1))
+    # start_state = np.array([-0.24, -0.2]).reshape((2, 1))
+    start_state = np.array([-0.34, 0.34]).reshape((2, 1))
     # start_state = np.array([-0.23, 0.19]).reshape((2, 1))
     # start_state = np.array([-0.15, 0.35]).reshape((2, 1))
 
@@ -681,15 +733,21 @@ def from_bagfile(bagfile):
     controls_move_neg_y = [np.array([0.0, -0.1]).reshape((2, 1))
                            for i in range(10)]
 
-    discrepancy_thresh = 0.075
+    # discrepancy_thresh = 0.075
+    discrepancy_thresh = 0.05
 
     actions = [controls_move_pos_x,
                controls_move_neg_x,
                controls_move_pos_y,
                controls_move_neg_y]
-    for a in actions:
-        plot_action(
-            ax, dyn, start_state, a, time_step, discrepancy_thresh)
+    # for a in actions:
+    #     plot_action(
+    #         ax, dyn, start_state, a, time_step, discrepancy_thresh)
+
+    c = plot_discrepancy_probabilities(
+        ax, dyn, [-0.3, 0.3], 40, [0.1, 0.6], 40,
+        controls_move_pos_x, time_step, discrepancy_thresh)
+    fig.colorbar(c, ax=ax)
 
     ax.legend()
     plt.show()
