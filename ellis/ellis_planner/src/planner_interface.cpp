@@ -114,7 +114,8 @@ bool PlannerInterface::InitializePlanner(ros::NodeHandle* nh) {
                                                                 // {0.01, 0.01, 0.8, 0.8};
     // {0.05, 0.05, 0.8, 0.8};
     // {0.05, 0.05, 0.05, 0.05};
-    {0.1, 0.1, 0.1, 0.1};
+    // {0.1, 0.1, 0.1, 0.1};
+    {0.175, 0.175, 0.175, 0.175};
   // {0.2, 0.2, 0.2, 0.2};
   NODELET_ERROR_STREAM("x disturbance GP params: " << dynamics_->GetDisturbances()[0].GetParameters().ToYaml());
   dynamics_->GetDisturbances()[1].GetParameters().v0_ = 1e-4;
@@ -123,7 +124,8 @@ bool PlannerInterface::InitializePlanner(ros::NodeHandle* nh) {
                                                                 // {0.01, 0.01, 0.8, 0.8};
     // {0.05, 0.05, 0.8, 0.8};
     // {0.05, 0.05, 0.05, 0.05};
-    {0.1, 0.1, 0.1, 0.1};
+    // {0.1, 0.1, 0.1, 0.1};
+    {0.175, 0.175, 0.175, 0.175};
   // {0.2, 0.2, 0.2, 0.2};
   NODELET_ERROR_STREAM("y disturbance GP params: " << dynamics_->GetDisturbances()[1].GetParameters().ToYaml());
 
@@ -666,8 +668,9 @@ bool PlannerInterface::ReportExecutionError(ReportExecutionError::Request& req, 
     std::vector<Eigen::Vector2d> controls;
     std::vector<Eigen::Vector2d> errors;
     std::vector<double> time_steps;
-    const double max_speed = 0.1;       // Max speed (m/s) TODO(eratner) Make this a parameter
-    const double error_thresh = 0.015;  // TODO(eratner) Make this a parameter
+    const double max_speed = 0.1;  // Max speed (m/s) TODO(eratner) Make this a parameter
+    // const double error_thresh = 0.015;  // TODO(eratner) Make this a parameter
+    const double error_thresh = 0.005;  // TODO(eratner) Make this a parameter
     NODELET_ERROR("## Before pre-processing: ");
     for (unsigned int i = 0; i < req.control_history.desired_pose.size() - 1; ++i) {
       const auto& actual_pose = req.control_history.actual_pose[i];
@@ -1061,7 +1064,8 @@ void PlannerInterface::PublishActionsAndPenalties(unsigned int max_depth) {
     state_pos_msg.color.b = 1.0;
     state_pos_msg.color.a = 0.5;
 
-    const double discr_threshold = 0.075;
+    // const double discr_threshold = 0.075; // TODO(eratner) Make a parameter
+    const double discr_threshold = 0.05;  // TODO(eratner) Make a parameter
 
     // state_pos_msg.scale.x = 0.02;
     // state_pos_msg.scale.y = 0.02;

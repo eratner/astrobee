@@ -219,9 +219,9 @@ std::tuple<State::Ptr, double> Environment::GetOutcome(const State::Ptr state, c
   //   cost += GetPenalty(state, action);
 
   if (UseControlLevelPenalty()) {
-    // cost += GetControlLevelPenalty(state, action);
+    cost += GetControlLevelPenalty(state, action);
     // TODO(eratner) This seems sort of hacky, should look into this further
-    cost += std::max(GetControlLevelPenalty(state, action), GetPenalty(state, action));
+    // cost += std::max(GetControlLevelPenalty(state, action), GetPenalty(state, action));
   } else {
     cost += GetPenalty(state, action);
   }
@@ -443,7 +443,8 @@ double Environment::GetControlLevelPenalty(const State::Ptr state, const Action&
 
   auto samples = MultivariateNormal<2>::Sample(pred_mean.back(), pred_cov.back(), num_samples);
 
-  const double discrepancy_thresh = 0.075;  // TODO(eratner) Make a parameter
+  // const double discrepancy_thresh = 0.075;  // TODO(eratner) Make a parameter
+  const double discrepancy_thresh = 0.05;  // TODO(eratner) Make a parameter
   int count = 0;
   for (const auto& sample : samples) {
     double error = (end_state - sample).norm();
