@@ -1,0 +1,8 @@
+<?xml version="1.0"?>
+<launch>
+  <!-- Load experiment parameters. -->
+  <rosparam command="load" file="$(find ellis_planner)/config/icra23_experiments_config.yaml" />
+
+  <!-- Run the experiments node. -->
+  <node name="icra23_experiments" type="icra23_exp" pkg="ellis_planner" output="screen" />
+</launch>

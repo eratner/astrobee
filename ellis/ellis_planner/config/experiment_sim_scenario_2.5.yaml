@@ -20,6 +20,13 @@ experiment_manager:
       yaw: 0.0
       size_x: 0.28 # 0.25 # 0.3
       size_y: 0.28 # 0.25 # 0.3
+    - type: rectangle
+      name: obs2
+      x: 0.225
+      y: 0.05
+      yaw: 0.0
+      size_x: 0.03
+      size_y: 0.38
 
 fake_obstacle_manager:
   freq: 10.0
@@ -37,6 +44,20 @@ fake_obstacle_manager:
         pos:
           x: 0
           y: 0
+          z: -0.674614
+        orien:
+          roll: 0
+          pitch: 0
+          yaw: 0
+    - name: obs2
+      size:
+        x: 0.1
+        y: 0.45
+        z: 0.74
+      pose:
+        pos:
+          x: 0.225
+          y: 0.05
           z: -0.674614
         orien:
           roll: 0

@@ -14,6 +14,7 @@ find_package(catkin2 REQUIRED COMPONENTS
   pluginlib
   choreographer
   visualization_msgs
+  rosbag
 )
 find_package(PCL REQUIRED COMPONENTS common)
 find_package(Eigen3 REQUIRED)
@@ -84,6 +85,10 @@ install(CODE "execute_process(
 add_executable(test_gp tools/test_gp.cpp)
 add_dependencies(test_gp ${catkin_EXPORTED_TARGETS} ellis_planner)
 target_link_libraries(test_gp ${catkin_LIBRARIES} ${PCL_LIBRARIES} ellis_planner)
+
+add_executable(icra23_exp tools/icra23_experiments.cpp)
+add_dependencies(icra23_exp ${catkin_EXPORTED_TARGETS} ellis_planner)
+target_link_libraries(icra23_exp ${catkin_LIBRARIES} ${PCL_LIBRARIES} ellis_planner)
 
 install(DIRECTORY launch/
   DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}/launch

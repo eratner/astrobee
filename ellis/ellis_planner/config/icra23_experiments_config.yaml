@@ -1,0 +1,25 @@
+num_experiments: 1
+random_seed: 0
+output_dir: /home/ellis/astrobee/src/ellis/ellis_planner/output
+time_limit_sec: 420.0 # 7 minutes
+run_method:
+  ours: True
+  replanning: True
+  cmax: True
+
+start:
+  pose:
+    x: -0.45
+    y: 0.65
+    yaw: 0.0
+  randomize: False
+
+goal:
+  pose:
+    x: 0.7
+    y: 0.65
+    yaw: 0.0
+  randomize: False
+
+# TODO Obstacles -- randomize?
+# TODO Disturbances -- randomize?

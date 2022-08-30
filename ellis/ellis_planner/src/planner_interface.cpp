@@ -108,24 +108,28 @@ bool PlannerInterface::InitializePlanner(ros::NodeHandle* nh) {
   env_.SetDynamics(dynamics_);
 
   // TODO(eratner) Read GP parameters from config
-  dynamics_->GetDisturbances()[0].GetParameters().v0_ = 1e-4;
+  dynamics_->GetDisturbances()[0].GetParameters().v0_ = 0.005;  // 1e-4;
   dynamics_->GetDisturbances()[0].GetParameters().v1_ = 0.001;  // 1e-4;
   dynamics_->GetDisturbances()[0].GetParameters().weights_ =    // {0.1, 0.1, 0.8, 0.8};
                                                                 // {0.01, 0.01, 0.8, 0.8};
     // {0.05, 0.05, 0.8, 0.8};
     // {0.05, 0.05, 0.05, 0.05};
     // {0.1, 0.1, 0.1, 0.1};
-    {0.175, 0.175, 0.175, 0.175};
+    // {0.175, 0.175, 0.175, 0.175};
+    {0.125, 0.125, 0.125, 0.125};
+  // {0.125, 0.125, 0.075, 0.075};
   // {0.2, 0.2, 0.2, 0.2};
   NODELET_ERROR_STREAM("x disturbance GP params: " << dynamics_->GetDisturbances()[0].GetParameters().ToYaml());
-  dynamics_->GetDisturbances()[1].GetParameters().v0_ = 1e-4;
+  dynamics_->GetDisturbances()[1].GetParameters().v0_ = 0.005;  // 1e-4;
   dynamics_->GetDisturbances()[1].GetParameters().v1_ = 0.001;  // 1e-4;
   dynamics_->GetDisturbances()[1].GetParameters().weights_ =    // {0.1, 0.1, 0.8, 0.8};
                                                                 // {0.01, 0.01, 0.8, 0.8};
     // {0.05, 0.05, 0.8, 0.8};
     // {0.05, 0.05, 0.05, 0.05};
     // {0.1, 0.1, 0.1, 0.1};
-    {0.175, 0.175, 0.175, 0.175};
+    // {0.175, 0.175, 0.175, 0.175};
+    {0.125, 0.125, 0.125, 0.125};
+  // {0.125, 0.125, 0.075, 0.075};
   // {0.2, 0.2, 0.2, 0.2};
   NODELET_ERROR_STREAM("y disturbance GP params: " << dynamics_->GetDisturbances()[1].GetParameters().ToYaml());
 
@@ -243,6 +247,7 @@ void PlannerInterface::PlanCallback(const ff_msgs::PlanGoal& goal) {
 
         // TODO(eratner) Make this a parameter
         const double margin = 0.3;
+        // const double margin = 0.4;
 
         // Set bounds on the environment used in planning.
         env_.SetBounds(zone.min.x + margin, zone.max.x - margin, zone.min.y + margin, zone.max.y - margin);
@@ -704,9 +709,19 @@ bool PlannerInterface::ReportExecutionError(ReportExecutionError::Request& req, 
         NODELET_ERROR_STREAM("  x: " << states.back().transpose() << ", u: " << controls.back().transpose()
                                      << ", e: " << errors.back().transpose() << ", ||e||" << errors.back().norm()
                                      << ", time_step: " << time_steps.back());
+      } else {
+        NODELET_ERROR_STREAM("At index " << i << "/" << req.control_history.desired_pose.size() - 2 << ": error of "
+                                         << error.norm() << " below threshold; clearing " << states.size()
+                                         << " examples so far...");
+        // Make sure only contiguous disturbances are used to train the model.
+        states.clear();
+        controls.clear();
+        errors.clear();
+        time_steps.clear();
       }
     }
 
+    NODELET_ERROR_STREAM("Before preprocessing, " << states.size() << " training examples");
     std::vector<Eigen::Vector4d> training_inputs;
     std::vector<double> targets_x, targets_y;
     PreprocessTrainingData(states, controls, errors, time_steps, training_inputs, targets_x, targets_y);

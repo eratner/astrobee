@@ -355,19 +355,20 @@ def preprocess_training_data(states, controls, errors, time_steps):
         ok = True
         for z, vx, vy in zip(training_inputs, targets_x, targets_y):
             dist = np.linalg.norm(x - z[:2].flatten())
-            print("x = {}, z = {}, dist = {}".format(x, z[:2].flatten(), dist))
+            # print("x = {}, z = {}, dist = {}".format(x, z[:2].flatten(), dist))
             # if dist < 0.035: # TODO Make a parameter
             if dist < 0.001:
                 # diff_x = abs(-e[0] - ex)
                 # diff_y = abs(-e[1] - ey)
                 diff_x = abs(-e[0] / t - vx)
                 diff_y = abs(-e[1] / t - vy)
-                print("e = {}, diff_x = {}, diff_y = {}".format(e, diff_x, diff_y))
+                # print("e = {}, diff_x = {}, diff_y = {}".format(e, diff_x, diff_y))
                 if diff_x < 0.025 and diff_y < 0.025:
                     ok = False
                     break
         if ok:
             u_normalized = u / np.linalg.norm(u)
+            print(" u = {}, u_norm = {}".format(u.flatten(), np.linalg.norm(u)))
             # z = np.concatenate([
             #     x.flatten(), u_normalized.flatten()]).reshape((4, 1))
             z = np.concatenate([
@@ -589,7 +590,23 @@ def from_bagfile(bagfile):
     ############################################################################
     # First, get all the data from the bag.
     bag = rosbag.Bag(bagfile)
+    # max_msgs = 1000
+    # max_msgs = 1
+    # max_msgs = 2
+    max_msgs = 3
+    msg_index = 0
     for topic, msg, t in bag.read_messages(topics=['/exp/control_history']):
+        if msg_index >= max_msgs:
+            break
+
+        msg_index += 1
+
+        msg_states = []
+        msg_controls = []
+        msg_errors = []
+        msg_time_steps = []
+        start_idx = 0
+
         for i in range(len(msg.desired_pose) - 1):
             actual_pose = msg.actual_pose[i]
             desired_pose = msg.desired_pose[i + 1]
@@ -622,13 +639,27 @@ def from_bagfile(bagfile):
             error = expected_next_pos - actual_next_pos
 
             if np.linalg.norm(error) > thresh:
-                states.append(pos)
-                controls.append(ctl_vel)
-                errors.append(error)
-                time_steps.append(time_step)
+                # states.append(pos)
+                # controls.append(ctl_vel)
+                # errors.append(error)
+                # time_steps.append(time_step)
+                # print("x: {}, u: {}, e: {}, ||e||: {}, dt: {}".format(
+                #     states[-1], controls[-1], errors[-1],
+                #     np.linalg.norm(errors[-1]), time_steps[-1]))
+                msg_states.append(pos)
+                msg_controls.append(ctl_vel)
+                msg_errors.append(error)
+                msg_time_steps.append(time_step)
                 print("x: {}, u: {}, e: {}, ||e||: {}, dt: {}".format(
-                    states[-1], controls[-1], errors[-1],
-                    np.linalg.norm(errors[-1]), time_steps[-1]))
+                    msg_states[-1], msg_controls[-1], msg_errors[-1],
+                    np.linalg.norm(msg_errors[-1]), msg_time_steps[-1]))
+            else:
+                start_idx = len(msg_states)
+
+        states += msg_states[start_idx:]
+        controls += msg_controls[start_idx:]
+        errors += msg_errors[start_idx:]
+        time_steps += msg_time_steps[start_idx:]
     ############################################################################
 
     fig, ax = plt.subplots(figsize=(10, 10))
@@ -642,6 +673,8 @@ def from_bagfile(bagfile):
               [-e[1] for e in errors], color='red', alpha=0.2, label="Disturbance")
 
     print("Before preprocessing: num states: {}".format(len(states)))
+    # training_inputs, targets_x, targets_y = \
+    #     preprocess_training_data(states[0:3], controls[0:3], errors[0:3], time_steps[0:3])
     training_inputs, targets_x, targets_y = \
         preprocess_training_data(states, controls, errors, time_steps)
     print("After preprocessing: num inputs: {}".format(len(training_inputs)))
@@ -659,7 +692,7 @@ def from_bagfile(bagfile):
     # Model of disturbance along the x-position.
     disturbance_x = GPModel()
     disturbance_x._params['D'] = 4
-    disturbance_x._params['v0'] = 1e-4 # 1e-4
+    disturbance_x._params['v0'] = 0.005 # 1e-6 # 1e-4 # 1e-4
     disturbance_x._params['v1'] = 0.001 # 1e-4 # 5e-4 # 0.1 # 1.0 # 1e-4
     # disturbance_x._params['w'] = [0.25, 0.25, 0.75, 0.75] # [0.4, 0.4, 0.4, 0.4]
     # disturbance_x._params['w'] = [0.1, 0.1, 0.8, 0.8]
@@ -667,7 +700,9 @@ def from_bagfile(bagfile):
     # disturbance_x._params['w'] = [0.05, 0.05, 0.05, 0.05]
     # disturbance_x._params['w'] = [0.001, 0.001, 0.05, 0.05]
     # disturbance_x._params['w'] = 4 * [0.1] # [0.025]
-    disturbance_x._params['w'] = 4 * [0.175]
+    # disturbance_x._params['w'] = 4 * [0.175] # (*)
+    disturbance_x._params['w'] = 4 * [0.125]
+    # disturbance_x._params['w'] = [0.125, 0.125, 0.075, 0.075]
     # disturbance_x._params['w'] = [0.25, 0.25, 0.1, 0.1]
     # disturbance_x._params['w'] = [0.15, 0.15, 0.05, 0.05]
     disturbance_x.train(training_inputs, targets_x)
@@ -675,7 +710,7 @@ def from_bagfile(bagfile):
     # Model of disturbance along the y-position.
     disturbance_y = GPModel()
     disturbance_y._params['D'] = 4
-    disturbance_y._params['v0'] = 1e-4 #1e-4
+    disturbance_y._params['v0'] = 0.005 # 1e-6 # 1e-4
     disturbance_y._params['v1'] = 0.001 # 1e-4 #5e-4 # 0.1 # 1.0 # 1e-4
     # disturbance_y._params['w'] = [0.25, 0.25, 0.75, 0.75] # [0.4, 0.4, 0.4, 0.4]
     # disturbance_y._params['w'] = [0.1, 0.1, 0.8, 0.8]
@@ -683,7 +718,9 @@ def from_bagfile(bagfile):
     # disturbance_y._params['w'] = [0.05, 0.05, 0.05, 0.05]
     # disturbance_y._params['w'] = [0.001, 0.001, 0.05, 0.05]
     # disturbance_y._params['w'] = 4 * [0.1] # 4 * [0.025]
-    disturbance_y._params['w'] = 4 * [0.175]
+    # disturbance_y._params['w'] = 4 * [0.175] # (*)
+    disturbance_y._params['w'] = 4 * [0.125]
+    # disturbance_y._params['w'] = [0.125, 0.125, 0.075, 0.075]
     # disturbance_y._params['w'] = [0.25, 0.25, 0.1, 0.1]
     # disturbance_y._params['w'] = [0.15, 0.15, 0.05, 0.05]
     disturbance_y.train(training_inputs, targets_y)
@@ -715,14 +752,15 @@ def from_bagfile(bagfile):
     # start_state = np.array([-0.14, 0.34]).reshape((2, 1))
     # start_state = np.array([-0.24, 0.34]).reshape((2, 1))
     # start_state = np.array([-0.24, -0.2]).reshape((2, 1))
-    start_state = np.array([-0.34, 0.34]).reshape((2, 1))
+    # start_state = np.array([-0.34, 0.34]).reshape((2, 1))
+    start_state = np.array([-0.22, 0.36]).reshape((2, 1))
     # start_state = np.array([-0.23, 0.19]).reshape((2, 1))
     # start_state = np.array([-0.15, 0.35]).reshape((2, 1))
 
     # center = (-0.21, 0.35) # Scenario 1
-    center = (-0.03, 0.19) # Scenario 2
-    ax.set_xlim([-0.4 + center[0], center[0] + 0.4])
-    ax.set_ylim([-0.4 + center[1], center[1] + 0.4])
+    # center = (-0.03, 0.19) # Scenario 2
+    # ax.set_xlim([-0.4 + center[0], center[0] + 0.4])
+    # ax.set_ylim([-0.4 + center[1], center[1] + 0.4])
 
     controls_move_pos_x = [np.array([0.1, 0.0]).reshape((2, 1))
                            for i in range(10)]
@@ -740,16 +778,27 @@ def from_bagfile(bagfile):
                controls_move_neg_x,
                controls_move_pos_y,
                controls_move_neg_y]
+    action_names = ["Move $+x$-Direction",
+                    "Move $-x$-Direction",
+                    "Move $+y$-Direction",
+                    "Move $-y$-Direction"]
     # for a in actions:
     #     plot_action(
     #         ax, dyn, start_state, a, time_step, discrepancy_thresh)
 
+    ax.set_xlim([-0.35, 0.15])
+    ax.set_xlabel("$x$ (m)")
+    ax.set_ylim([0.25, 0.75])
+    ax.set_ylabel("$y$ (m)")
+    action_idx = 0
+    ax.set_title("Discrepancy Probability for Action {}".format(
+        action_names[action_idx]))
     c = plot_discrepancy_probabilities(
-        ax, dyn, [-0.3, 0.3], 40, [0.1, 0.6], 40,
-        controls_move_pos_x, time_step, discrepancy_thresh)
+        ax, dyn, [-0.35, 0.15], 40, [0.25, 0.75], 40,
+        actions[action_idx], time_step, discrepancy_thresh)
     fig.colorbar(c, ax=ax)
 
-    ax.legend()
+    ax.legend(loc='lower left')
     plt.show()
 
 

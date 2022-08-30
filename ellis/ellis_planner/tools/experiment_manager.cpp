@@ -492,10 +492,10 @@ class ExperimentManager {
             }
 
             // TODO(eratner) A little hacky
-            ZeroYaw();
-            control_feedback_history_.clear();
-            control_history_.desired_pose.clear();
-            control_history_.actual_pose.clear();
+            // ZeroYaw();
+            // control_feedback_history_.clear();
+            // control_history_.desired_pose.clear();
+            // control_history_.actual_pose.clear();
 
 
             // for (const auto& f : control_feedback_history_) {
