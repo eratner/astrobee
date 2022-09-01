@@ -9,6 +9,7 @@
 #include <tf2/utils.h>
 #include <tf2_msgs/TFMessage.h>
 #include <visualization_msgs/Marker.h>
+#include <nav_msgs/Path.h>
 #include <ros/package.h>
 #include <rosbag/bag.h>
 #include <std_srvs/Trigger.h>
@@ -16,6 +17,7 @@
 #include <ellis_planner/ReportExecutionError.h>
 #include <ellis_planner/AddObstacle.h>
 #include <ellis_planner/ControlHistory.h>
+#include <ellis_planner/PlanningInfo.h>
 #include <yaml-cpp/yaml.h>
 #include <array>
 #include <string>
@@ -40,6 +42,34 @@ class Experiments {
 
       return node;
     }
+  };
+
+  struct ObstacleInfo {
+    ObstacleInfo(const std::string& type = "rectangle", const std::string& name = "obs", double x = 0.0, double y = 0.0,
+                 double yaw = 0.0, double size_x = 0.0, double size_y = 0.0, bool known = true, bool randomize = false)
+        : type_(type),
+          name_(name),
+          x_(x),
+          y_(y),
+          yaw_(yaw),
+          size_x_(size_x),
+          size_y_(size_y),
+          known_(known),
+          randomize_(randomize) {}
+
+    void Randomize(int random_seed = 0) {
+      // TODO(eratner) Implement me
+    }
+
+    std::string type_;
+    std::string name_;
+    double x_;
+    double y_;
+    double yaw_;
+    double size_x_;
+    double size_y_;
+    bool known_;
+    bool randomize_;
   };
 
   Experiments()
@@ -83,8 +113,8 @@ class Experiments {
       ros::Duration(0.25).sleep();
     }
 
-    add_obstacle_client_ = nh_.serviceClient<ellis_planner::AddObstacle>("/mob/ellis_planner/add_obstacle");
-    clear_obstacles_client_ = nh_.serviceClient<std_srvs::Trigger>("/mob/ellis_planner/clear_obstacles");
+    add_known_obstacle_client_ = nh_.serviceClient<ellis_planner::AddObstacle>("/mob/ellis_planner/add_obstacle");
+    clear_known_obstacles_client_ = nh_.serviceClient<std_srvs::Trigger>("/mob/ellis_planner/clear_obstacles");
     report_execution_error_client_ =
       nh_.serviceClient<ellis_planner::ReportExecutionError>("/mob/ellis_planner/report_execution_error");
     clear_execution_errors_client_ = nh_.serviceClient<std_srvs::Trigger>("/mob/ellis_planner/clear_execution_errors");
@@ -108,7 +138,7 @@ class Experiments {
     }
 
     while (ros::ok()) {
-      if (add_obstacle_client_.waitForExistence(ros::Duration(0.25))) {
+      if (add_known_obstacle_client_.waitForExistence(ros::Duration(0.25))) {
         break;
       } else {
         ROS_WARN("[Experiments] Waiting for add obstacle server...");
@@ -117,7 +147,7 @@ class Experiments {
     }
 
     while (ros::ok()) {
-      if (clear_obstacles_client_.waitForExistence(ros::Duration(0.25))) {
+      if (clear_known_obstacles_client_.waitForExistence(ros::Duration(0.25))) {
         break;
       } else {
         ROS_WARN("[Experiments] Waiting for clear obstacles server...");
@@ -127,51 +157,118 @@ class Experiments {
 
     control_history_pub_ = nh_.advertise<ellis_planner::ControlHistory>("/exp/control_history", 10);
 
-    subs_ = {nh_.subscribe<tf2_msgs::TFMessage>("/tf", 1,
-                                                [this](const tf2_msgs::TFMessageConstPtr& msg) {
-                                                  if (bag_.isOpen()) bag_.write("/tf", ros::Time::now(), *msg);
+    subs_ = {
+      nh_.subscribe<tf2_msgs::TFMessage>("/tf", 1,
+                                         [this](const tf2_msgs::TFMessageConstPtr& msg) {
+                                           if (bag_.isOpen()) bag_.write("/tf", ros::Time::now(), *msg);
+                                         }),
+      nh_.subscribe<tf2_msgs::TFMessage>(
+        "/tf_static", 1, [this](const tf2_msgs::TFMessageConstPtr& msg) { static_tf_msgs_.push_back(*msg); }),
+      nh_.subscribe<visualization_msgs::Marker>("/mob/ellis_planner/vis", 1,
+                                                [this](const visualization_msgs::MarkerConstPtr& msg) {
+                                                  if (bag_.isOpen())
+                                                    bag_.write("/mob/ellis_planner/vis", ros::Time::now(), *msg);
                                                 }),
-             nh_.subscribe<tf2_msgs::TFMessage>("/tf_static", 1,
-                                                [this](const tf2_msgs::TFMessageConstPtr& msg) {
-                                                  if (bag_.isOpen()) bag_.write("/tf_static", ros::Time::now(), *msg);
-                                                }),
-             nh_.subscribe<visualization_msgs::Marker>("/mob/ellis_planner/vis", 1,
-                                                       [this](const visualization_msgs::MarkerConstPtr& msg) {
-                                                         if (bag_.isOpen())
-                                                           bag_.write("/mob/ellis_planner/vis", ros::Time::now(), *msg);
-                                                       }),
-             nh_.subscribe<ellis_planner::ControlHistory>(
-               "/exp/control_history", 1, [this](const ellis_planner::ControlHistoryConstPtr& msg) {
-                 if (bag_.isOpen()) bag_.write("/exp/control_history", ros::Time::now(), *msg);
-               })};
+      nh_.subscribe<ellis_planner::ControlHistory>("/exp/control_history", 1,
+                                                   [this](const ellis_planner::ControlHistoryConstPtr& msg) {
+                                                     if (bag_.isOpen())
+                                                       bag_.write("/exp/control_history", ros::Time::now(), *msg);
+                                                   }),
+      nh_.subscribe<nav_msgs::Path>("/mob/choreographer/segment", 1,
+                                    [this](const nav_msgs::PathConstPtr& msg) {
+                                      if (bag_.isOpen())
+                                        bag_.write("/mob/choreographer/segment", ros::Time::now(), *msg);
+                                    }),
+      nh_.subscribe<ellis_planner::PlanningInfo>("/mob/ellis_planner/info", 1,
+                                                 [this](const ellis_planner::PlanningInfoConstPtr& msg) {
+                                                   if (bag_.isOpen())
+                                                     bag_.write("/mob/ellis_planner/info", ros::Time::now(), *msg);
+                                                 }),
+      nh_.subscribe<ff_msgs::MotionActionFeedback>("/mob/motion/feedback", 1,
+                                                   [this](const ff_msgs::MotionActionFeedbackConstPtr& msg) {
+                                                     if (bag_.isOpen())
+                                                       bag_.write("/mob/motion/feedback", ros::Time::now(), *msg);
+                                                   })};
 
     return true;
   }
 
   bool Run() {
+    ROS_INFO("[Run] Preparing to run experiments...");
     // Load the experiment parameters.
     int num_experiments = p_nh_.param<int>("num_experiments", 0);
     int random_seed = p_nh_.param<int>("random_seed", 0);
     std::string output_dir = p_nh_.param<std::string>("output_dir", "/tmp");
     double time_limit_sec = p_nh_.param<double>("time_limit_sec", 1000.0);
-    // TODO(eratner) Print info for debugging...
+    double loop_rate_hz = p_nh_.param<double>("loop_rate_hz", 5.0);
+    ROS_INFO_STREAM("[Run]  # experiments: " << num_experiments);
+    ROS_INFO_STREAM("[Run]  random seed: " << random_seed);
+    ROS_INFO_STREAM("[Run]  output dir: " << output_dir);
+    ROS_INFO_STREAM("[Run]  time limit (sec): " << time_limit_sec);
 
     double start_x = p_nh_.param<double>("start/pose/x", 0);
     double start_y = p_nh_.param<double>("start/pose/y", 0);
     double start_yaw = p_nh_.param<double>("start/pose/yaw", 0);
     bool randomize_start = p_nh_.param<bool>("start/randomize", false);
+    ROS_INFO_STREAM("[Run]  start: (" << start_x << ", " << start_y << ", " << start_yaw << "), randomize? "
+                                      << (randomize_start ? "YES" : "NO"));
 
     double goal_x = p_nh_.param<double>("goal/pose/x", 0);
     double goal_y = p_nh_.param<double>("goal/pose/y", 0);
     double goal_yaw = p_nh_.param<double>("goal/pose/yaw", 0);
     bool randomize_goal = p_nh_.param<bool>("goal/randomize", false);
+    ROS_INFO_STREAM("[Run]  goal: (" << goal_x << ", " << goal_y << ", " << goal_yaw << "), randomize? "
+                                     << (randomize_goal ? "YES" : "NO"));
 
     goal_x_ = goal_x;
     goal_y_ = goal_y;
 
+    // Load obstacle info.
+    std::vector<ObstacleInfo> obstacle_info;
+    XmlRpc::XmlRpcValue obstacles;
+    if (p_nh_.getParam("obstacles", obstacles)) {
+      for (int i = 0; i < obstacles.size(); ++i) {
+        XmlRpc::XmlRpcValue o = obstacles[i];
+        double x = 0.0, y = 0.0, yaw = 0.0;
+        double size_x = 0.0, size_y = 0.0;
+        std::string type = "rectangle";
+        std::string name = "obs";
+        bool known = true;
+        bool randomize = false;
+        for (auto it = o.begin(); it != o.end(); ++it) {
+          if (it->first == "x")
+            x = static_cast<double>(it->second);
+          else if (it->first == "y")
+            y = static_cast<double>(it->second);
+          else if (it->first == "yaw")
+            yaw = static_cast<double>(it->second);
+          else if (it->first == "size_x")
+            size_x = static_cast<double>(it->second);
+          else if (it->first == "size_y")
+            size_y = static_cast<double>(it->second);
+          else if (it->first == "name")
+            name = static_cast<std::string>(it->second);
+          else if (it->first == "type")
+            type = static_cast<std::string>(it->second);
+          else if (it->first == "known")
+            known = static_cast<bool>(it->second);
+          else if (it->first == "randomize")
+            randomize = static_cast<bool>(it->second);
+        }
+        ROS_INFO_STREAM("[Run]    Obstacle " << i << ": {name: " << name << ", type: " << type << ", x: " << x
+                                             << ", y: " << y << ", yaw: " << yaw << ", size_x: " << size_x
+                                             << ", size_y: " << size_y << ", known: " << (known ? "True" : "False")
+                                             << ", randomize: " << (randomize ? "True" : "False") << "}");
+        obstacle_info.emplace_back(type, name, x, y, yaw, size_x, size_y, known, randomize);
+      }
+    } else {
+      ROS_WARN("[Run] No obstacles specified");
+    }
+
     // TODO(eratner) Get more parameters...
 
     for (unsigned int i = 0; i < num_experiments; ++i) {
+      ROS_INFO_STREAM("[Run] **Starting experiment " << i + 1 << "/" << num_experiments << "**");
       // Get the robot's start pose for this experiment.
       double exp_start_x = start_x;
       double exp_start_y = start_y;
@@ -189,6 +286,11 @@ class Experiments {
         // TODO(eratner) Implement me
       }
 
+      std::vector<ObstacleInfo> exp_obstacle_info = obstacle_info;
+      for (auto& o : exp_obstacle_info) {
+        if (o.randomize_) o.Randomize();
+      }
+
       for (unsigned int j = 0; j < NUM_METHODS; ++j) {
         auto method = static_cast<Method>(j);
         bool run_method = p_nh_.param<bool>("run_method/" + ToString(method), true);
@@ -203,11 +305,22 @@ class Experiments {
           ROS_ERROR("[Experiments] Could not change to trapezoidal planner!");
           continue;
         }
+        state_ = EXECUTING;
         if (!MoveTo(exp_start_x, exp_start_y, exp_start_yaw)) {
           ROS_ERROR_STREAM("[Experiments] Could not move to experiment start (" << exp_start_x << ", " << exp_start_y
                                                                                 << ", " << exp_start_yaw << ")!");
           continue;
         }
+        // Wait until the robot has moved to the start.
+        while (ros::ok()) {
+          if (state_ != EXECUTING) {
+            ROS_INFO("[Run] Done executing!");
+            break;
+          }
+          ros::spinOnce();
+          ros::Rate(5.0).sleep();
+        }
+
         cfg_.Set<std::string>("planner", "ellis");
         if (!cfg_.Reconfigure()) {
           ROS_ERROR("[Experiments] Could not change to ellis planner!");
@@ -215,7 +328,16 @@ class Experiments {
         }
 
         // TODO(eratner) Reset everything in the planner
-        // TODO(eratner) Set the obstacles up in the planner
+
+        ClearKnownObstacles();
+        ClearUnknownObstacles();
+        ClearUnknownDisturbances();
+
+        // Set up the known and unknown obstacles.
+        for (const auto& o : exp_obstacle_info) {
+          if (!AddObstacle(o)) ROS_WARN("[Run] Failed to add obstacle!");
+        }
+
         // TODO(eratner) Set the disturbances/unknown obstacles up (how to do?)
 
         // Start writing to a bagfile.
@@ -224,9 +346,11 @@ class Experiments {
         path_to_bag += ("exp_" + std::to_string(i) + "_" + ToString(method) + ".bag");
         bag_.open(path_to_bag, rosbag::bagmode::Write);
 
+        for (const auto& msg : static_tf_msgs_) bag_.write("/tf_static", ros::Time::now(), msg);
+
         // TODO(eratner) Run experiment while recording total time
         state_ = REPLAN_NEEDED;
-        ros::Rate rate(5.0);
+        ros::Rate rate(loop_rate_hz);
         while (ros::ok()) {
           switch (state_) {
             case REPLAN_NEEDED: {
@@ -256,7 +380,7 @@ class Experiments {
               break;
           }
 
-          if (state_ == ERROR) break;
+          if (state_ == ERROR || state_ == DONE) break;
 
           ros::spinOnce();
           rate.sleep();
@@ -265,7 +389,9 @@ class Experiments {
         // TODO(eratner) Check if AtGoal() to determine whether success
 
         // Stop writing to a bagfile.
+        ROS_INFO("[Run] Writing to bag file...");
         bag_.close();
+        ROS_INFO("[Run] ...done!");
       }
     }
 
@@ -274,6 +400,7 @@ class Experiments {
 
  private:
   void ResultCallback(ff_util::FreeFlyerActionState::Enum result_code, ff_msgs::MotionResultConstPtr const& result) {
+    ROS_INFO_STREAM("result code: " << result_code);
     switch (result_code) {
       case ff_util::FreeFlyerActionState::Enum::TIMEOUT_ON_CONNECT:
         ROS_ERROR("[Experiments] Timeout on connect");
@@ -342,8 +469,8 @@ class Experiments {
     } else {
       double err_pos = std::sqrt(std::pow(feedback->progress.setpoint.pose.position.x, 2) +
                                  std::pow(feedback->progress.setpoint.pose.position.y, 2));
-      ROS_INFO_STREAM("    Actual pos: (" << actual_x << ", " << actual_y << ", " << actual_z
-                                          << "), yaw: " << actual_yaw << ", err pos: " << err_pos);
+      ROS_DEBUG_STREAM("    Actual pos: (" << actual_x << ", " << actual_y << ", " << actual_z
+                                           << "), yaw: " << actual_yaw << ", err pos: " << err_pos);
     }
 
     control_history_.time.push_back(feedback->progress.setpoint.when);
@@ -402,14 +529,14 @@ class Experiments {
     }
 
     if (index < 0) {
-      ROS_ERROR("[Experiments] Failed to find root of error!");
+      ROS_ERROR("[ReportExecutionError] Failed to find root of error!");
       return false;
     }
 
-    ROS_WARN_STREAM("[Experiments] Found root of error at index " << index << " (history size is "
-                                                                  << control_feedback_history_.size() << ")");
+    ROS_WARN_STREAM("[ReportExecutionError] Found root of error at index " << index << " (history size is "
+                                                                           << control_feedback_history_.size() << ")");
     const auto& fb = control_feedback_history_[index];
-    ROS_WARN_STREAM("[Experiments]   pos err: "
+    ROS_WARN_STREAM("[ReportExecutionError]   pos err: "
                     << fb.error_position << ", att err: " << fb.error_attitude << ", x: " << fb.setpoint.pose.position.x
                     << ", y: " << fb.setpoint.pose.position.y << ", yaw: " << tf2::getYaw(fb.setpoint.pose.orientation)
                     << ", vel x: " << fb.setpoint.twist.linear.x << ", vel y: " << fb.setpoint.twist.linear.y
@@ -453,7 +580,7 @@ class Experiments {
     // Get the robot's current pose.
     double curr_x, curr_y, curr_z, curr_yaw;
     if (!GetPose(curr_x, curr_y, curr_z, curr_yaw)) {
-      ROS_ERROR("[ExperimentManager] Failed to get robot's current pose!");
+      ROS_ERROR("[MoveTo] Failed to get robot's current pose!");
       return false;
     }
 
@@ -479,15 +606,55 @@ class Experiments {
     state.pose.orientation.z = orien.z();
     state.pose.orientation.w = orien.w();
     goal.states = {state};
-    ROS_INFO_STREAM("[Experiments] Sending motion goal with position ("
+    ROS_INFO_STREAM("[MoveTo] Sending motion goal with position ("
                     << state.pose.position.x << ", " << state.pose.position.y << ", " << state.pose.position.z
                     << ") and yaw " << yaw << "...");
     if (!mobility_client_.SendGoal(goal)) {
-      ROS_ERROR("[Experiments] Mobility client did not accept goal");
+      ROS_ERROR("[MoveTo] Mobility client did not accept goal");
       return false;
     }
 
     return true;
+  }
+
+  bool ClearKnownObstacles() {
+    std_srvs::Trigger srv;
+    return clear_known_obstacles_client_.call(srv);
+  }
+
+  bool AddObstacle(const ObstacleInfo& info) {
+    if (info.known_) {
+      // Add a known obstacle.
+      ellis_planner::AddObstacle add_obs;
+      add_obs.request.type = info.type_;
+      add_obs.request.name = info.name_;
+      add_obs.request.pose.position.x = info.x_;
+      add_obs.request.pose.position.y = info.y_;
+      tf2::Quaternion orien;
+      orien.setRPY(0, 0, info.yaw_);
+      add_obs.request.pose.orientation.x = orien.x();
+      add_obs.request.pose.orientation.y = orien.y();
+      add_obs.request.pose.orientation.z = orien.z();
+      add_obs.request.pose.orientation.w = orien.w();
+      add_obs.request.size.x = info.size_x_;
+      add_obs.request.size.y = info.size_y_;
+      return add_known_obstacle_client_.call(add_obs);
+    } else {
+      // Add an unknown obstacle.
+      // TODO(eratner) Implement me
+      ROS_WARN("[AddObstacle] Adding unknown obstacle not yet implemented!");
+    }
+    return false;
+  }
+
+  bool ClearUnknownObstacles() {
+    // TODO(eratner) Implement me
+    return false;
+  }
+
+  bool ClearUnknownDisturbances() {
+    // TODO(eratner) Implement me
+    return false;
   }
 
   ros::NodeHandle nh_;
@@ -496,8 +663,8 @@ class Experiments {
   tf2_ros::TransformListener tf_listener_;
   ff_util::FreeFlyerActionClient<ff_msgs::MotionAction> mobility_client_;
   ff_util::ConfigClient cfg_;
-  ros::ServiceClient add_obstacle_client_;
-  ros::ServiceClient clear_obstacles_client_;
+  ros::ServiceClient add_known_obstacle_client_;
+  ros::ServiceClient clear_known_obstacles_client_;
   ros::ServiceClient report_execution_error_client_;
   ros::ServiceClient clear_execution_errors_client_;
   boost::circular_buffer<ff_msgs::ControlFeedback> control_feedback_history_;
@@ -511,6 +678,7 @@ class Experiments {
 
   rosbag::Bag bag_;
   std::vector<ros::Subscriber> subs_;
+  std::vector<tf2_msgs::TFMessage> static_tf_msgs_;
 };
 
 int main(int argc, char* argv[]) {

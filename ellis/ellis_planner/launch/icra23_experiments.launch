@@ -1,7 +1,11 @@
 <?xml version="1.0"?>
 <launch>
+  <!-- Also should run: roslaunch astrobee sim.launch dds:=false robot:=sim_pub world:="granite" ground_truth_localizer:=true -->
   <!-- Load experiment parameters. -->
   <rosparam command="load" file="$(find ellis_planner)/config/icra23_experiments_config.yaml" />
+
+  <!-- TODO Fake obstacles node -->
+  <!-- TODO Fake disturbances node -->
 
   <!-- Run the experiments node. -->
   <node name="icra23_experiments" type="icra23_exp" pkg="ellis_planner" output="screen" />

@@ -1,25 +1,37 @@
-num_experiments: 1
-random_seed: 0
-output_dir: /home/ellis/astrobee/src/ellis/ellis_planner/output
-time_limit_sec: 420.0 # 7 minutes
-run_method:
-  ours: True
-  replanning: True
-  cmax: True
+icra23_experiments:
+  loop_rate_hz: 30.0 # 5.0
+  num_experiments: 2
+  random_seed: 0
+  output_dir: /home/ellis/astrobee/src/ellis/ellis_planner/output
+  time_limit_sec: 420.0 # 7 minutes
+  run_method:
+    ours: True
+    replanning: False
+    cmax: False
 
-start:
-  pose:
-    x: -0.45
-    y: 0.65
-    yaw: 0.0
+  start:
+    pose:
+      x: -0.45
+      y: 0.65
+      yaw: 0.0
   randomize: False
 
-goal:
-  pose:
-    x: 0.7
-    y: 0.65
-    yaw: 0.0
-  randomize: False
+  goal:
+    pose:
+      x: 0.7
+      y: 0.65
+      yaw: 0.0
+    randomize: False
 
-# TODO Obstacles -- randomize?
+  obstacles:
+    - type: rectangle
+      name: obs1
+      x: 0.0
+      y: 0.0
+      yaw: 0.0
+      size_x: 0.28
+      size_y: 0.28
+      known: True
+      randomize: False
+
 # TODO Disturbances -- randomize?
