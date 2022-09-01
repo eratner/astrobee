@@ -325,8 +325,8 @@ void PlannerInterface::PlanCallback(const ff_msgs::PlanGoal& goal) {
   }
 
   info_pub.msg_.success = true;
-  info_pub.msg_.planning_time_sec = search_.GetPerformance().planning_time_sec_;
-  info_pub.msg_.num_expansions = search_.GetPerformance().num_expansions_;
+  info_pub.msg_.planning_time_sec = search_.GetProfiling().planning_time_sec_;
+  info_pub.msg_.num_expansions = search_.GetProfiling().num_expansions_;
 
   info_pub.msg_.path_cost = path_cost;
   for (const auto state : path) {
@@ -435,6 +435,9 @@ void PlannerInterface::PlanCallback(const ff_msgs::PlanGoal& goal) {
   }
 
   last_trajectory_ = result.segment;
+
+  auto prof_node = ProfilingToYaml();
+  NODELET_ERROR_STREAM("PROFILING: \n" << prof_node);
 
   PlanResult(result);
 }
@@ -656,6 +659,8 @@ bool PlannerInterface::ClearObstacles(std_srvs::Trigger::Request& req, std_srvs:
 // }
 
 bool PlannerInterface::ReportExecutionError(ReportExecutionError::Request& req, ReportExecutionError::Response& res) {
+  auto start_time = std::chrono::high_resolution_clock::now();
+
   NODELET_ERROR_STREAM("Exec error at (" << req.x << ", " << req.y << ", " << req.yaw << ") with action ("
                                          << req.action_dir_x << ", " << req.action_dir_y << ", " << req.action_dir_yaw
                                          << ")");
@@ -727,16 +732,23 @@ bool PlannerInterface::ReportExecutionError(ReportExecutionError::Request& req, 
     PreprocessTrainingData(states, controls, errors, time_steps, training_inputs, targets_x, targets_y);
     NODELET_ERROR_STREAM("After preprocessing, " << training_inputs.size() << " training examples");
 
+    Clock train_clock;
+    train_clock.Start();
+
     // Update the GPs with the new training data.
     dynamics_->GetDisturbances()[0].Train(training_inputs, targets_x);
     dynamics_->GetDisturbances()[1].Train(training_inputs, targets_y);
 
+    train_clock.Stop();
+    Train_time_sec_.push_back(train_clock.GetElapsedTimeSec());
+    data_set_size_.push_back(dynamics_->GetDisturbances()[0].GetNumTrainingInputs());
+
     //////////////////////////////////////////////////////////////////////////////
     // For testing.
-    double curr_x = 0.0, curr_y = 0.0, curr_z = 0.0, curr_yaw = 0.0;
-    GetPose(curr_x, curr_y, curr_z, curr_yaw);
-    auto curr_state = env_.GetState(curr_x, curr_y, curr_yaw);
-    NODELET_ERROR_STREAM("## Curr state: " << *curr_state);
+    // double curr_x = 0.0, curr_y = 0.0, curr_z = 0.0, curr_yaw = 0.0;
+    // GetPose(curr_x, curr_y, curr_z, curr_yaw);
+    // auto curr_state = env_.GetState(curr_x, curr_y, curr_yaw);
+    // NODELET_ERROR_STREAM("## Curr state: " << *curr_state);
     // for (const auto& action : env_.GetActions()) {
     //   NODELET_ERROR_STREAM("#### Action: " << action);
     //   double penalty = env_.GetControlLevelPenalty(curr_state, action);
@@ -744,36 +756,36 @@ bool PlannerInterface::ReportExecutionError(ReportExecutionError::Request& req, 
     // }
     //////////////////////////////////////////////////////////////////////////////
 
-    PublishActionsAndPenalties(1);
+    // PublishActionsAndPenalties(1);
 
     //////////////////////////////////////////////////////////////////////////////
     // For testing.
-    NODELET_ERROR("-------------------------");
-    int move_neg_x_action_index = -1;
-    for (unsigned int i = 0; i < env_.GetActions().size(); ++i) {
-      const auto& action = env_.GetActions()[i];
-      if (action.name_ == "move_neg_x") {
-        move_neg_x_action_index = i;
-        break;
-      }
-    }
+    // NODELET_ERROR("-------------------------");
+    // int move_neg_x_action_index = -1;
+    // for (unsigned int i = 0; i < env_.GetActions().size(); ++i) {
+    //   const auto& action = env_.GetActions()[i];
+    //   if (action.name_ == "move_neg_x") {
+    //     move_neg_x_action_index = i;
+    //     break;
+    //   }
+    // }
 
-    if (move_neg_x_action_index >= 0) {
-      const auto& a = env_.GetActions()[move_neg_x_action_index];
-      ellis_planner::State::Ptr s = curr_state;
-      for (int i = 0; i < 8; ++i) {
-        NODELET_ERROR_STREAM("At state " << *s << " taking action " << a.name_ << "...");
-        auto outcome_and_cost = env_.GetOutcome(s, a);
-        s = std::get<0>(outcome_and_cost);
-        if (!s) {
-          NODELET_ERROR("  Action has no outcome!");
-          break;
-        } else {
-          double cost = std::get<1>(outcome_and_cost);
-          NODELET_ERROR_STREAM("  Action has cost " << cost);
-        }
-      }
-    }
+    // if (move_neg_x_action_index >= 0) {
+    //   const auto& a = env_.GetActions()[move_neg_x_action_index];
+    //   ellis_planner::State::Ptr s = curr_state;
+    //   for (int i = 0; i < 8; ++i) {
+    //     NODELET_ERROR_STREAM("At state " << *s << " taking action " << a.name_ << "...");
+    //     auto outcome_and_cost = env_.GetOutcome(s, a);
+    //     s = std::get<0>(outcome_and_cost);
+    //     if (!s) {
+    //       NODELET_ERROR("  Action has no outcome!");
+    //       break;
+    //     } else {
+    //       double cost = std::get<1>(outcome_and_cost);
+    //       NODELET_ERROR_STREAM("  Action has cost " << cost);
+    //     }
+    //   }
+    // }
     //////////////////////////////////////////////////////////////////////////////
   }
 
@@ -880,6 +892,9 @@ bool PlannerInterface::ClearExecutionErrors(std_srvs::Trigger::Request& req, std
   env_.ClearExecutionErrorNeighborhoods();
 
   for (auto& disturbance : dynamics_->GetDisturbances()) disturbance.Reset();
+
+  data_set_size_.clear();
+  Train_time_sec_.clear();
 
   return true;
 }
@@ -1243,6 +1258,32 @@ void PlannerInterface::PublishActionsAndPenalties(unsigned int max_depth) {
       }
     }
   }
+}
+
+YAML::Node PlannerInterface::ProfilingToYaml() {
+  YAML::Node prof;
+
+  YAML::Node train_gp;
+  for (auto s : data_set_size_) train_gp["data_set_size"].push_back(s);
+  for (auto t : Train_time_sec_) train_gp["Train_time_sec"].push_back(t);
+  prof["train_gp"] = train_gp;
+
+  YAML::Node search;
+  search["planning_time_sec"] = search_.GetProfiling().planning_time_sec_;
+  search["num_expansions"] = search_.GetProfiling().num_expansions_;
+  prof["search"] = search;
+
+  YAML::Node env;
+  env["GetOutcome_calls"] = env_.prof_.GetOutcome_calls;
+  env["GetOutcome_time_sec"] = env_.prof_.GetOutcome_time_sec;
+  env["GetControlLevelPenalty_calls"] = env_.prof_.GetControlLevelPenalty_calls;
+  env["GetControlLevelPenalty_time_sec"] = env_.prof_.GetControlLevelPenalty_time_sec;
+  env["GetControlLevelPenalty_Predict_calls"] = env_.prof_.GetControlLevelPenalty_Predict_calls;
+  env["GetControlLevelPenalty_Predict_time_sec"] = env_.prof_.GetControlLevelPenalty_Predict_time_sec;
+  env["GetControlLevelPenalty_sampling_time_sec"] = env_.prof_.GetControlLevelPenalty_sampling_time_sec;
+  prof["env"] = env;
+
+  return prof;
 }
 
 }  // namespace ellis_planner

@@ -59,6 +59,7 @@ class GP {
   std::vector<double> training_targets_;
   Eigen::VectorXd y_;
   Eigen::MatrixXd K_;
+  Eigen::MatrixXd K_inv_;
   Eigen::LLT<Eigen::MatrixXd> K_decomp_;
   Eigen::VectorXd K_inv_y_;
 };

@@ -6,6 +6,7 @@
 #include <ellis_planner/rectangle_collision_object.h>
 #include <ellis_planner/linear_dynamics.h>
 #include <ellis_planner/normal_dist.h>
+#include <ellis_planner/clock.h>
 #include <ellis_planner/ReportExecutionError.h>
 #include <boost/functional/hash.hpp>
 #include <vector>
@@ -153,6 +154,20 @@ class Environment {
   bool UseControlLevelPenalty() const;
 
   void SetUseControlLevelPenalty(bool use);
+
+  // TODO(eratner) Clean this up
+  struct Profiling {
+    void Reset();
+
+    int GetOutcome_calls;
+    double GetOutcome_time_sec;
+    int GetControlLevelPenalty_calls;
+    double GetControlLevelPenalty_time_sec;
+    int GetControlLevelPenalty_Predict_calls;
+    double GetControlLevelPenalty_Predict_time_sec;
+    double GetControlLevelPenalty_sampling_time_sec;
+  };
+  mutable Profiling prof_;
 
  private:
   // Discretization parameters.

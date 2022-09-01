@@ -67,9 +67,10 @@ add_library(ellis_planner
   src/search.cpp
   src/collision_object.cpp
   src/rectangle_collision_object.cpp
+  src/clock.cpp
 )
 add_dependencies(ellis_planner ${catkin_EXPORTED_TARGETS} ${PROJECT_NAME}_generate_messages_cpp)
-target_link_libraries(ellis_planner ${catkin_LIBRARIES} ${PCL_LIBRARIES})
+target_link_libraries(ellis_planner ${catkin_LIBRARIES} ${PCL_LIBRARIES} yaml-cpp)
 
 add_executable(exp tools/experiment_manager.cpp)
 add_dependencies(exp ${catkin_EXPORTED_TARGETS} ellis_planner)
@@ -88,7 +89,7 @@ target_link_libraries(test_gp ${catkin_LIBRARIES} ${PCL_LIBRARIES} ellis_planner
 
 add_executable(icra23_exp tools/icra23_experiments.cpp)
 add_dependencies(icra23_exp ${catkin_EXPORTED_TARGETS} ellis_planner)
-target_link_libraries(icra23_exp ${catkin_LIBRARIES} ${PCL_LIBRARIES} ellis_planner)
+target_link_libraries(icra23_exp ${catkin_LIBRARIES} ${PCL_LIBRARIES} ellis_planner yaml-cpp)
 
 install(DIRECTORY launch/
   DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}/launch

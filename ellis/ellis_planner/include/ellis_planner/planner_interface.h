@@ -16,6 +16,7 @@
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2/utils.h>
 #include <std_srvs/Trigger.h>
+#include <yaml-cpp/yaml.h>
 #include <string>
 #include <vector>
 #include <cmath>
@@ -88,6 +89,8 @@ class PlannerInterface : public planner::PlannerImplementation {
 
   void PublishActionsAndPenalties(unsigned int max_depth = 2);
 
+  YAML::Node ProfilingToYaml();
+
   ff_util::ConfigServer cfg_;
 
   tf2_ros::Buffer tf_buffer_;
@@ -111,6 +114,10 @@ class PlannerInterface : public planner::PlannerImplementation {
   std::vector<ff_msgs::ControlState> last_trajectory_;
 
   LinearDynamics<2, 2>* dynamics_;
+
+  // Profiling information.
+  std::vector<int> data_set_size_;
+  std::vector<double> Train_time_sec_;
 };
 
 }  // namespace ellis_planner

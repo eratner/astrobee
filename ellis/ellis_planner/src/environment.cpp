@@ -186,6 +186,9 @@ void Environment::ClearCollisionObjects() {
 }
 
 std::tuple<State::Ptr, double> Environment::GetOutcome(const State::Ptr state, const Action& action) {
+  prof_.GetOutcome_calls++;
+  ScopedClock clock(&prof_.GetOutcome_time_sec);
+
   double x = state->GetX() + action.change_in_x_;
   if (x < min_x_ || max_x_ < x) {
     // Out-of-bounds in x.
@@ -425,6 +428,9 @@ std::vector<Eigen::Vector2d> Environment::GetOpenLoopControls(const State::Ptr s
 
 double Environment::GetControlLevelPenalty(const State::Ptr state, const Action& action,
                                            unsigned int num_samples) const {
+  prof_.GetControlLevelPenalty_calls++;
+  ScopedClock clock(&prof_.GetControlLevelPenalty_time_sec);
+
   if (!dynamics_ || dynamics_->GetDisturbances()[0].GetNumTrainingInputs() == 0) return 0.0;
 
   if (std::abs(action.change_in_x_) < 1e-6 && std::abs(action.change_in_y_) < 1e-6) return 0.0;
@@ -439,8 +445,15 @@ double Environment::GetControlLevelPenalty(const State::Ptr state, const Action&
 
   std::vector<Eigen::Vector2d> pred_mean;
   std::vector<Eigen::Matrix<double, 2, 2>> pred_cov;
+  prof_.GetControlLevelPenalty_Predict_calls++;
+  Clock predict_clock;
+  predict_clock.Start();
   dynamics_->Predict(start_state, controls, pred_mean, pred_cov);
+  predict_clock.Stop();
+  prof_.GetControlLevelPenalty_Predict_time_sec += predict_clock.GetElapsedTimeSec();
 
+  Clock sampling_clock;
+  sampling_clock.Start();
   auto samples = MultivariateNormal<2>::Sample(pred_mean.back(), pred_cov.back(), num_samples);
 
   // const double discrepancy_thresh = 0.075;  // TODO(eratner) Make a parameter
@@ -453,6 +466,9 @@ double Environment::GetControlLevelPenalty(const State::Ptr state, const Action&
     }
   }
   double prob_discr = static_cast<double>(count) / num_samples;
+
+  sampling_clock.Stop();
+  prof_.GetControlLevelPenalty_sampling_time_sec += sampling_clock.GetElapsedTimeSec();
 
   return (prob_discr * exec_error_params_.penalty_);
 }
@@ -478,6 +494,16 @@ void Environment::SetNominalLinVel(double vel) { nominal_lin_vel_ = vel; }
 bool Environment::UseControlLevelPenalty() const { return use_control_level_penalty_; }
 
 void Environment::SetUseControlLevelPenalty(bool use) { use_control_level_penalty_ = use; }
+
+void Environment::Profiling::Reset() {
+  GetOutcome_calls = 0;
+  GetOutcome_time_sec = 0.0;
+  GetControlLevelPenalty_calls = 0;
+  GetControlLevelPenalty_time_sec = 0.0;
+  GetControlLevelPenalty_Predict_calls = 0;
+  GetControlLevelPenalty_Predict_time_sec = 0.0;
+  GetControlLevelPenalty_sampling_time_sec = 0.0;
+}
 
 std::ostream& operator<<(std::ostream& os, const Environment::Action& action) {
   os << "{name: " << action.name_ << ", change_in_x: " << action.change_in_x_

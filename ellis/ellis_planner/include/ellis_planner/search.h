@@ -3,28 +3,23 @@
 #define ELLIS_PLANNER_SEARCH_H_
 
 #include <ellis_planner/environment.h>
+#include <ellis_planner/clock.h>
 #include <set>
 #include <tuple>
 #include <algorithm>
 #include <vector>
-#include <chrono>
 
 namespace ellis_planner {
 
 class Search {
  public:
-  struct Performance {
-    Performance();
+  struct Profiling {
+    Profiling();
 
     void Reset();
 
-    void StartClock();
-
-    void StopClock();
-
     int num_expansions_;
     double planning_time_sec_;
-    std::chrono::time_point<std::chrono::high_resolution_clock> planning_start_time_;
   };
 
   explicit Search(Environment* env);
@@ -33,13 +28,13 @@ class Search {
 
   bool Run(State::Ptr start_state, std::vector<State::Ptr>& path, double& path_cost);
 
-  const Performance& GetPerformance() const;
+  const Profiling& GetProfiling() const;
 
  private:
   void ReconstructPath(const State::Ptr goal_state, std::vector<State::Ptr>& path) const;
 
   Environment* env_;
-  Performance perf_;
+  Profiling prof_;
 };
 
 }  // namespace ellis_planner

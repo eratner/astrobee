@@ -64,6 +64,9 @@ void GP<InputDim>::Train(const std::vector<InputVec>& inputs, const std::vector<
 
   std::cout << "K: \n" << K_ << std::endl;
   std::cout << "K_inv_y: \n" << K_inv_y_ << std::endl;
+
+  // TODO(eratner) Refactor to avoid inverting K directly
+  Eigen::MatrixXd K_inv_ = K_.inverse();
 }
 
 template <unsigned int InputDim>
@@ -115,9 +118,6 @@ Eigen::Matrix<double, InputDim, 1> GP<InputDim>::GetFirstDerivOfMeanFunc(const I
 
 template <unsigned int InputDim>
 Eigen::Matrix<double, InputDim, InputDim> GP<InputDim>::GetSecondDerivOfVarFunc(const InputVec& x) const {
-  // TODO(eratner) Refactor to avoid inverting K directly
-  Eigen::MatrixXd K_inv = K_.inverse();
-
   Eigen::VectorXd k = GetCovWithTrainingInputs(x);
 
   Eigen::Matrix<double, InputDim, InputDim> deriv = Eigen::Matrix<double, InputDim, InputDim>::Zero();
@@ -130,10 +130,10 @@ Eigen::Matrix<double, InputDim, InputDim> GP<InputDim>::GetSecondDerivOfVarFunc(
         xe(i) = training_inputs_[i](e) - x(e);
       }
 
-      deriv(d, e) = xd.cwiseProduct(k).transpose() * K_inv * xe.cwiseProduct(k);
-      deriv(d, e) += xd.cwiseProduct(xe.cwiseProduct(k)).transpose() * K_inv * k;
+      deriv(d, e) = xd.cwiseProduct(k).transpose() * K_inv_ * xe.cwiseProduct(k);
+      deriv(d, e) += xd.cwiseProduct(xe.cwiseProduct(k)).transpose() * K_inv_ * k;
       deriv(d, e) *= -2.0 * params_.weights_[d] * params_.weights_[e];
-      if (d == e) deriv(d, e) += (2.0 * params_.weights_[d] * k.transpose() * K_inv * k);
+      if (d == e) deriv(d, e) += (2.0 * params_.weights_[d] * k.transpose() * K_inv_ * k);
     }
   }
 
