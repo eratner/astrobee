@@ -23,8 +23,13 @@ class LinearDynamics {
 
   StateVec Step(const StateVec& x, const ControlVec& u) const;
 
+  // TODO(eratner) Refactor Predict; maybe we don't need to store the disturbance in the class
   void Predict(const StateVec& start_state, const std::vector<ControlVec>& controls, std::vector<StateVec>& pred_mean,
                std::vector<Eigen::Matrix<double, StateDim, StateDim>>& pred_cov);
+
+  void Predict(const StateVec& start_state, const std::vector<ControlVec>& controls, std::vector<StateVec>& pred_mean,
+               std::vector<Eigen::Matrix<double, StateDim, StateDim>>& pred_cov,
+               const std::array<GP<StateDim + ControlDim>*, StateDim>& disturbances) const;
 
   std::array<GP<StateDim + ControlDim>, StateDim>& GetDisturbances();
 
@@ -32,7 +37,7 @@ class LinearDynamics {
 
   const Eigen::Matrix<double, StateDim, ControlDim>& GetB() const;
 
-  const Eigen::Matrix<double, StateDim, StateDim> &GetBd() const;
+  const Eigen::Matrix<double, StateDim, StateDim>& GetBd() const;
 
  private:
   Eigen::Matrix<double, StateDim, StateDim> A_;

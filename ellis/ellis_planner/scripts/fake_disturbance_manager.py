@@ -6,6 +6,8 @@ import tf2_ros
 from visualization_msgs.msg import Marker
 from gazebo_msgs.srv import ApplyBodyWrench
 from geometry_msgs.msg import Point, Wrench
+from ellis_planner.srv import AddDisturbance, AddDisturbanceResponse
+from std_srvs.srv import Trigger, TriggerResponse
 
 
 class FakeDisturbanceManager:
@@ -39,6 +41,12 @@ class FakeDisturbanceManager:
         if not rospy.has_param('~disturbances'):
             return False
         self._disturbances = rospy.get_param('~disturbances')
+
+        self._add_disturbance_srv = rospy.Service(
+            '~add_disturbance', AddDisturbance, self.handle_add_disturbance)
+
+        self._clear_disturbances_srv = rospy.Service(
+            '~clear_disturbances', Trigger, self.handle_clear_disturbances)
 
         self._tf_buffer = tf2_ros.Buffer()
         self._tf_listener = tf2_ros.TransformListener(self._tf_buffer)
@@ -90,6 +98,34 @@ class FakeDisturbanceManager:
                           Point(d['force']['x'], d['force']['y'], 0)]
             self._vis_pub.publish(dir_msg)
 
+    def handle_add_disturbance(self, req):
+        d = {
+            'region': {
+                'center': {
+                    'x': req.center.x,
+                    'y': req.center.y,
+                    'z': req.center.z
+                },
+                'size': {
+                    'x': req.size.x,
+                    'y': req.size.y,
+                    'z': req.size.z
+                }
+            },
+            'force': {
+                'x': req.wrench.force.x,
+                'y': req.wrench.force.y,
+                'z': req.wrench.force.z
+            }
+        }
+        rospy.loginfo("[DisturbanceManager] Added disturbance: {}".format(d))
+        self._disturbances.append(d)
+        return AddDisturbanceResponse(True)
+
+    def handle_clear_disturbances(self, req):
+        self._disturbances = []
+        return TriggerResponse(True, "")
+
     def run(self):
         freq = 10.0
         rate = rospy.Rate(freq)
@@ -123,7 +159,7 @@ class FakeDisturbanceManager:
                                 w,
                                 rospy.Time(),
                                 rospy.Duration(1.0 / freq))
-                            rospy.loginfo("[FakeDisturbanceManager] Applying force ({}, {}) succeeded? {} with message: {}".format(
+                            rospy.logdebug("[FakeDisturbanceManager] Applying force ({}, {}) succeeded? {} with message: {}".format(
                                 d['force']['x'],
                                 d['force']['y'],
                                 str(res.success),

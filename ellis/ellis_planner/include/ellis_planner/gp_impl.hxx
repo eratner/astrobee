@@ -66,7 +66,7 @@ void GP<InputDim>::Train(const std::vector<InputVec>& inputs, const std::vector<
   std::cout << "K_inv_y: \n" << K_inv_y_ << std::endl;
 
   // TODO(eratner) Refactor to avoid inverting K directly
-  Eigen::MatrixXd K_inv_ = K_.inverse();
+  K_inv_ = K_.inverse();
 }
 
 template <unsigned int InputDim>
@@ -148,6 +148,11 @@ typename GP<InputDim>::Parameters& GP<InputDim>::GetParameters() {
 template <unsigned int InputDim>
 unsigned int GP<InputDim>::GetNumTrainingInputs() const {
   return training_inputs_.size();
+}
+
+template <unsigned int InputDim>
+const Eigen::MatrixXd& GP<InputDim>::GetK() const {
+  return K_;
 }
 
 }  // namespace ellis_planner

@@ -15,6 +15,7 @@ find_package(catkin2 REQUIRED COMPONENTS
   choreographer
   visualization_msgs
   rosbag
+  dynamic_reconfigure
 )
 find_package(PCL REQUIRED COMPONENTS common)
 find_package(Eigen3 REQUIRED)
@@ -68,6 +69,7 @@ add_library(ellis_planner
   src/collision_object.cpp
   src/rectangle_collision_object.cpp
   src/clock.cpp
+  src/disturbance_model_manager.cpp
 )
 add_dependencies(ellis_planner ${catkin_EXPORTED_TARGETS} ${PROJECT_NAME}_generate_messages_cpp)
 target_link_libraries(ellis_planner ${catkin_LIBRARIES} ${PCL_LIBRARIES} yaml-cpp)

@@ -18,7 +18,6 @@ Search::~Search() {}
 
 bool Search::Run(State::Ptr start_state, std::vector<State::Ptr>& path, double& path_cost) {
   prof_.Reset();
-  env_->prof_.Reset();
   ScopedClock clock(&prof_.planning_time_sec_, false);
 
   path_cost = 1e9;

@@ -10,12 +10,14 @@
 #include <ellis_planner/polynomial_trajectory.h>
 #include <ellis_planner/environment.h>
 #include <ellis_planner/search.h>
+#include <ellis_planner/disturbance_model_manager.h>
 #include <ellis_planner/ReportExecutionError.h>
 #include <ellis_planner/AddObstacle.h>
 #include <ellis_planner/PlanningInfo.h>
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2/utils.h>
 #include <std_srvs/Trigger.h>
+#include <std_msgs/String.h>
 #include <yaml-cpp/yaml.h>
 #include <string>
 #include <vector>
@@ -89,6 +91,8 @@ class PlannerInterface : public planner::PlannerImplementation {
 
   void PublishActionsAndPenalties(unsigned int max_depth = 2);
 
+  void VisualizeDiscrepancyData();
+
   YAML::Node ProfilingToYaml();
 
   ff_util::ConfigServer cfg_;
@@ -98,6 +102,7 @@ class PlannerInterface : public planner::PlannerImplementation {
 
   ros::Publisher vis_pub_;
   ros::Publisher planning_info_pub_;
+  ros::Publisher planner_prof_pub_;
 
   ros::ServiceServer add_obstacle_srv_;
   ros::ServiceServer clear_obstacles_srv_;
@@ -110,10 +115,15 @@ class PlannerInterface : public planner::PlannerImplementation {
   // Planning.
   Environment env_;
   Search search_;
+  Environment::Dataset env_data_;
+  std::vector<geometry_msgs::Point> zero_discrepancy_datapoints_;
+  std::vector<geometry_msgs::Point> nonzero_discrepancy_datapoints_;
 
   std::vector<ff_msgs::ControlState> last_trajectory_;
 
   LinearDynamics<2, 2>* dynamics_;
+
+  DisturbanceModelManager disturbance_model_mgr_;
 
   // Profiling information.
   std::vector<int> data_set_size_;

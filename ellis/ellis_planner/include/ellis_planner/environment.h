@@ -7,8 +7,10 @@
 #include <ellis_planner/linear_dynamics.h>
 #include <ellis_planner/normal_dist.h>
 #include <ellis_planner/clock.h>
+#include <ellis_planner/disturbance_model_manager.h>
 #include <ellis_planner/ReportExecutionError.h>
 #include <boost/functional/hash.hpp>
+#include <extern/nanoflann.hpp>
 #include <vector>
 #include <unordered_map>
 #include <tuple>
@@ -157,6 +159,8 @@ class Environment {
 
   // TODO(eratner) Clean this up
   struct Profiling {
+    Profiling();
+
     void Reset();
 
     int GetOutcome_calls;
@@ -168,6 +172,35 @@ class Environment {
     double GetControlLevelPenalty_sampling_time_sec;
   };
   mutable Profiling prof_;
+
+  // TODO(eratner) Experimental!
+  struct Dataset {
+    struct Point {
+      explicit Point(double x = 0.0, double y = 0.0) : x_(x), y_(y) {}
+
+      double x_;
+      double y_;
+    };
+
+    inline std::size_t kdtree_get_point_count() const { return points_.size(); }
+
+    inline double kdtree_get_pt(const std::size_t idx, const std::size_t dim) const {
+      if (dim == 0)
+        return points_[idx].x_;
+      else
+        return points_[idx].y_;
+    }
+
+    template <class BBOX>
+    bool kdtree_get_bbox(BBOX&) const {
+      return false;
+    }
+
+    std::vector<Point> points_;
+  };
+  nanoflann::KDTreeSingleIndexAdaptor<nanoflann::L2_Simple_Adaptor<double, Dataset>, Dataset, 2>* data_;
+
+  void SetDisturbanceModelManager(DisturbanceModelManager* mgr);
 
  private:
   // Discretization parameters.
@@ -208,6 +241,8 @@ class Environment {
   double nominal_lin_vel_;
 
   bool use_control_level_penalty_;
+
+  DisturbanceModelManager* disturbance_model_mgr_;
 };
 
 std::ostream& operator<<(std::ostream& os, const Environment::Action& action);

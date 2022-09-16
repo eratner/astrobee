@@ -367,8 +367,8 @@ def preprocess_training_data(states, controls, errors, time_steps):
                     ok = False
                     break
         if ok:
-            u_normalized = u / np.linalg.norm(u)
-            print(" u = {}, u_norm = {}".format(u.flatten(), np.linalg.norm(u)))
+            # u_normalized = u / np.linalg.norm(u)
+            # print(" u = {}, u_norm = {}".format(u.flatten(), np.linalg.norm(u)))
             # z = np.concatenate([
             #     x.flatten(), u_normalized.flatten()]).reshape((4, 1))
             z = np.concatenate([
@@ -423,7 +423,8 @@ def plot_discrepancy_probabilities(
                 pct = 100.0 * k / (num_samples_x * num_samples_y)
                 print("{}% done...".format(pct))
 
-    return ax.pcolormesh(x, y, p, cmap='RdBu', vmin=0.0, vmax=1.0, alpha=0.25)
+    # return ax.pcolormesh(x, y, p, cmap='RdBu', vmin=0.0, vmax=1.0, alpha=1.0, linewidth=0, rasterized=True)
+    return ax.pcolormesh(x, y, p, cmap='Blues', vmin=0.0, vmax=1.0, alpha=1.0, linewidth=0, rasterized=True)
 
 
 def plot_action(ax, dyn, start_state, controls, time_step, discrepancy_thresh):
@@ -473,7 +474,7 @@ def plot_action(ax, dyn, start_state, controls, time_step, discrepancy_thresh):
 
     prob_disc = 1.0 * num_x_ends_disc / num_x_ends
     print("prob disc = {}".format(prob_disc))
-    ax.text(last_desired[0], last_desired[1], str(prob_disc), color='red')
+    # ax.text(last_desired[0], last_desired[1], str(prob_disc), color='red')
     # ax.scatter([x[0] for x in x_not_ok], [x[1] for x in x_not_ok], alpha=0.2, color='red')
     # ax.scatter([x[0] for x in x_ok], [x[1] for x in x_ok], alpha=0.2, color='green')
     ########################################################################
@@ -481,23 +482,30 @@ def plot_action(ax, dyn, start_state, controls, time_step, discrepancy_thresh):
     # Plot the trajectory w/o disturbances.
     ax.plot([x[0] for x in xs_no_dist],
             [x[1] for x in xs_no_dist],
-            color='red', linewidth=2)
+            color='red', alpha=0.75, linewidth=4, linestyle='dashed')
+    print(xs_no_dist[-1][0])
+    action_dir = xs_no_dist[-1] - xs_no_dist[-2]
+    ax.arrow(float(xs_no_dist[-1][0]), float(xs_no_dist[-1][1]), float(action_dir[0]), float(action_dir[1]), shape='full', linewidth=0, length_includes_head=True, head_width=np.linalg.norm(action_dir), color='red', alpha=0.5)
     e = Ellipse(xy=(xs_no_dist[-1][0], xs_no_dist[-1][1]),
                 width=2.0 * discrepancy_thresh,
                 height=2.0 * discrepancy_thresh,
-                fill=False, edgecolor='red', linestyle='dashed')
+                fill=False, edgecolor='red', alpha=0.5, linestyle='dashed')
     ax.add_artist(e)
 
     ax.plot([x[0] for x in pred_mean],
             [x[1] for x in pred_mean],
-            color='orange', linewidth=2)
-    for mean, cov in zip(pred_mean, pred_cov):
+            color='blue', linewidth=2)
+    for mean, cov in zip(pred_mean[::2], pred_cov[::2]):
         e = Ellipse(xy=(mean[0], mean[1]),
-                    width=2.0 * np.sqrt(cov[0, 0]),
-                    height=2.0 * np.sqrt(cov[1, 1]),
-                    fill=True, facecolor='orange', alpha=0.2,
-                    edgecolor='orange')
+                    width=4.0 * np.sqrt(cov[0, 0]),
+                    height=4.0 * np.sqrt(cov[1, 1]),
+                    fill=True, facecolor='blue', alpha=0.2,
+                    edgecolor='blue')
         ax.add_artist(e)
+    path_dir = pred_mean[-1] - pred_mean[-2]
+    head_size = max(0.005, np.linalg.norm(path_dir))
+    head_size = 0.01
+    ax.arrow(float(pred_mean[-1][0]), float(pred_mean[-1][1]), float(path_dir[0]), float(path_dir[1]), shape='full', linewidth=0, length_includes_head=True, head_width=head_size, color='blue')
 
 
 def msg_to_training_data(msg, thresh, max_speed):
@@ -573,6 +581,7 @@ def msg_to_training_data(msg, thresh, max_speed):
 
 def from_bagfile(bagfile):
     thresh = 0.005
+    # thresh = 0.0
     # thresh = 0.015 # Discrepancy threshold
     max_speed = 0.1 # m/s
 
@@ -591,9 +600,9 @@ def from_bagfile(bagfile):
     # First, get all the data from the bag.
     bag = rosbag.Bag(bagfile)
     # max_msgs = 1000
-    # max_msgs = 1
+    max_msgs = 1
     # max_msgs = 2
-    max_msgs = 3
+    # max_msgs = 3
     msg_index = 0
     for topic, msg, t in bag.read_messages(topics=['/exp/control_history']):
         if msg_index >= max_msgs:
@@ -606,6 +615,7 @@ def from_bagfile(bagfile):
         msg_errors = []
         msg_time_steps = []
         start_idx = 0
+        # start_idx = 20
 
         for i in range(len(msg.desired_pose) - 1):
             actual_pose = msg.actual_pose[i]
@@ -663,14 +673,18 @@ def from_bagfile(bagfile):
     ############################################################################
 
     fig, ax = plt.subplots(figsize=(10, 10))
-    ax.scatter(desired_pos_x, desired_pos_y,
-               marker='+', s=100, c='black', label="Desired")
-    ax.scatter(actual_pos_x, actual_pos_y,
-               marker='o', s=100, c='blue', alpha=0.2, label="Actual")
-    ax.quiver([s[0] for s in states],
-              [s[1] for s in states],
-              [-e[0] for e in errors],
-              [-e[1] for e in errors], color='red', alpha=0.2, label="Disturbance")
+    # ax.scatter(desired_pos_x, desired_pos_y,
+    #            marker='+', s=100, c='black', label="Desired")
+    # ax.plot(desired_pos_x, desired_pos_y, c='red',
+    #         linestyle='dashed', linewidth=5, alpha=0.5, label="Desired")
+    # ax.scatter(actual_pos_x, actual_pos_y,
+    #            marker='o', s=100, c='blue', alpha=0.2, label="Actual")
+    # ax.plot(actual_pos_x[::4], actual_pos_y[::4],
+    #         linewidth=2, c='red', label="Actual")
+    # ax.quiver([s[0] for s in states[::2]],
+    #           [s[1] for s in states[::2]],
+    #           [-e[0] for e in errors[::2]],
+    #           [-e[1] for e in errors[::2]], color='red', alpha=0.2, label="Disturbance")
 
     print("Before preprocessing: num states: {}".format(len(states)))
     # training_inputs, targets_x, targets_y = \
@@ -679,15 +693,15 @@ def from_bagfile(bagfile):
         preprocess_training_data(states, controls, errors, time_steps)
     print("After preprocessing: num inputs: {}".format(len(training_inputs)))
 
-    ax.scatter([z[0] for z in training_inputs],
-               [z[1] for z in training_inputs],
-               marker='+', s=150, c='green', label="Training Input ($x$)")
+    # ax.scatter([z[0] for z in training_inputs],
+    #            [z[1] for z in training_inputs],
+    #            marker='+', s=150, c='green', label="Training Input ($x$)")
     u_scale = 0.1
-    ax.quiver([z[0] for z in training_inputs],
-              [z[1] for z in training_inputs],
-              [u_scale * z[2] for z in training_inputs],
-              [u_scale * z[3] for z in training_inputs],
-              color='green', alpha=0.5, label="Training Input ($\hat{u}$)")
+    # ax.quiver([z[0] for z in training_inputs[::2]],
+    #           [z[1] for z in training_inputs[::2]],
+    #           [u_scale * z[2] for z in training_inputs[::2]],
+    #           [u_scale * z[3] for z in training_inputs[::2]],
+    #           color='green', alpha=0.5, label="Training Input ($\hat{u}$)")
 
     # Model of disturbance along the x-position.
     disturbance_x = GPModel()
@@ -782,23 +796,34 @@ def from_bagfile(bagfile):
                     "Move $-x$-Direction",
                     "Move $+y$-Direction",
                     "Move $-y$-Direction"]
-    # for a in actions:
-    #     plot_action(
-    #         ax, dyn, start_state, a, time_step, discrepancy_thresh)
+    for a in actions:
+        plot_action(
+            ax, dyn, start_state, a, time_step, discrepancy_thresh)
 
-    ax.set_xlim([-0.35, 0.15])
+    x_range = [-0.50, 0.0] # [-0.35, 0.15]
+    y_range = [-0.25, 0.25] # [0.25, 0.75]
+
+    x_range = [-0.35, 0.0]
+    y_range = [0.65, 0.30]
+
+    x_range = [-0.5, 0.1]
+    y_range = [0.7, 0.1]
+
+    # ax.set_xlim([-0.35, 0.15])
+    ax.set_xlim(x_range)
     ax.set_xlabel("$x$ (m)")
-    ax.set_ylim([0.25, 0.75])
+    # ax.set_ylim([0.25, 0.75])
+    ax.set_ylim(y_range)
     ax.set_ylabel("$y$ (m)")
     action_idx = 0
     ax.set_title("Discrepancy Probability for Action {}".format(
         action_names[action_idx]))
-    c = plot_discrepancy_probabilities(
-        ax, dyn, [-0.35, 0.15], 40, [0.25, 0.75], 40,
-        actions[action_idx], time_step, discrepancy_thresh)
-    fig.colorbar(c, ax=ax)
+    # c = plot_discrepancy_probabilities(
+    #     ax, dyn, x_range, 40, y_range, 40,
+    #     actions[action_idx], time_step, discrepancy_thresh)
+    # fig.colorbar(c, ax=ax)
 
-    ax.legend(loc='lower left')
+    # ax.legend(loc='lower left')
     plt.show()
 
 

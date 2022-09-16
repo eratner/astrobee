@@ -19,7 +19,7 @@ experiment_manager:
     #   size_x: 0.3
     #   size_y: 0.3
 
-fake_obstacle_manager:
+obstacle_manager:
   freq: 10.0
   world_frame_id: world
   gazebo_ns: /gazebo

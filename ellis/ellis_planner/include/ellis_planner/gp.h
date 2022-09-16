@@ -52,6 +52,8 @@ class GP {
 
   unsigned int GetNumTrainingInputs() const;
 
+  const Eigen::MatrixXd &GetK() const;
+
  private:
   Parameters params_;
 

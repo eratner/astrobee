@@ -35,6 +35,9 @@ bool PlannerInterface::InitializePlanner(ros::NodeHandle* nh) {
   std::string planning_info_topic = "/mob/ellis_planner/info";
   planning_info_pub_ = nh->advertise<PlanningInfo>(planning_info_topic, 10);
 
+  std::string planner_prof_topic = "/mob/ellis_planner/prof";
+  planner_prof_pub_ = nh->advertise<std_msgs::String>(planner_prof_topic, 10);
+
   add_obstacle_srv_ = nh->advertiseService("/mob/ellis_planner/add_obstacle", &PlannerInterface::AddObstacle, this);
   clear_obstacles_srv_ =
     nh->advertiseService("/mob/ellis_planner/clear_obstacles", &PlannerInterface::ClearObstacles, this);
@@ -106,6 +109,7 @@ bool PlannerInterface::InitializePlanner(ros::NodeHandle* nh) {
   Eigen::Matrix<double, 2, 2> Bd = time_step * Eigen::Matrix<double, 2, 2>::Identity();
   dynamics_ = new LinearDynamics<2, 2>(A, B, Bd);
   env_.SetDynamics(dynamics_);
+  env_.SetDisturbanceModelManager(&disturbance_model_mgr_);
 
   // TODO(eratner) Read GP parameters from config
   dynamics_->GetDisturbances()[0].GetParameters().v0_ = 0.005;  // 1e-4;
@@ -310,10 +314,25 @@ void PlannerInterface::PlanCallback(const ff_msgs::PlanGoal& goal) {
   // TODO(eratner) This may be inefficient, but makes sure old search data is not carried over into subsequent searches
   env_.Clear();
 
+  env_.data_ = new nanoflann::KDTreeSingleIndexAdaptor<nanoflann::L2_Simple_Adaptor<double, Environment::Dataset>,
+                                                       Environment::Dataset, 2>(2, env_data_, {10});
+
+  NODELET_ERROR_STREAM(" " << env_.GetExecutionErrorNeighborhoods().size() << " exec error neighborhoods...");
+
   env_.SetGoal(goal_pose.position.x, goal_pose.position.y, goal_yaw);
   std::vector<ellis_planner::State::Ptr> path;
   auto start_state = env_.GetState(start_x, start_y, start_yaw);
+
+  if (env_.IsGoal(start_state)) {
+    NODELET_ERROR_STREAM("Start state is at the goal already!");
+    result.response = ff_msgs::PlanResult::ALREADY_THERE;
+    return PlanResult(result);
+  }
+
   double path_cost = 1e9;
+  NODELET_ERROR_STREAM("Planning from start (" << start_x << ", " << start_y << ", " << start_yaw << ") to goal ("
+                                               << goal_pose.position.x << ", " << goal_pose.position.y << ", "
+                                               << goal_yaw << ")...");
   if (!search_.Run(start_state, path, path_cost)) {
     NODELET_ERROR_STREAM("Could not find a path to the goal, with start ("
                          << start_x << ", " << start_y << ", " << start_yaw << ") and goal (" << goal_pose.position.x
@@ -323,6 +342,9 @@ void PlannerInterface::PlanCallback(const ff_msgs::PlanGoal& goal) {
     result.response = ff_msgs::PlanResult::BAD_ARGUMENTS;
     return PlanResult(result);
   }
+
+  NODELET_ERROR_STREAM("Planning succeeded after " << search_.GetProfiling().num_expansions_ << " expansions in "
+                                                   << search_.GetProfiling().planning_time_sec_ << " sec");
 
   info_pub.msg_.success = true;
   info_pub.msg_.planning_time_sec = search_.GetProfiling().planning_time_sec_;
@@ -438,6 +460,13 @@ void PlannerInterface::PlanCallback(const ff_msgs::PlanGoal& goal) {
 
   auto prof_node = ProfilingToYaml();
   NODELET_ERROR_STREAM("PROFILING: \n" << prof_node);
+  std::stringstream s;
+  s << prof_node;
+  std_msgs::String prof_msg;
+  prof_msg.data = s.str();
+  planner_prof_pub_.publish(prof_msg);
+  // NODELET_ERROR_STREAM("Kx: \n" << dynamics_->GetDisturbances()[0].GetK());
+  // NODELET_ERROR_STREAM("Ky: \n" << dynamics_->GetDisturbances()[1].GetK());
 
   PlanResult(result);
 }
@@ -659,8 +688,6 @@ bool PlannerInterface::ClearObstacles(std_srvs::Trigger::Request& req, std_srvs:
 // }
 
 bool PlannerInterface::ReportExecutionError(ReportExecutionError::Request& req, ReportExecutionError::Response& res) {
-  auto start_time = std::chrono::high_resolution_clock::now();
-
   NODELET_ERROR_STREAM("Exec error at (" << req.x << ", " << req.y << ", " << req.yaw << ") with action ("
                                          << req.action_dir_x << ", " << req.action_dir_y << ", " << req.action_dir_yaw
                                          << ")");
@@ -681,6 +708,14 @@ bool PlannerInterface::ReportExecutionError(ReportExecutionError::Request& req, 
     const double max_speed = 0.1;  // Max speed (m/s) TODO(eratner) Make this a parameter
     // const double error_thresh = 0.015;  // TODO(eratner) Make this a parameter
     const double error_thresh = 0.005;  // TODO(eratner) Make this a parameter
+
+    std::vector<Eigen::Vector2d> all_states;
+    std::vector<Eigen::Vector2d> all_controls;
+    std::vector<Eigen::Vector2d> all_errors;
+    std::vector<double> all_time_steps;
+    int all_index = 0;
+    int disturb_start_index = 0;
+
     NODELET_ERROR("## Before pre-processing: ");
     for (unsigned int i = 0; i < req.control_history.desired_pose.size() - 1; ++i) {
       const auto& actual_pose = req.control_history.actual_pose[i];
@@ -706,25 +741,74 @@ bool PlannerInterface::ReportExecutionError(ReportExecutionError::Request& req, 
       Eigen::Vector2d error = expected_next_pos - actual_next_pos;
 
       if (error.norm() > error_thresh) {
+        if (states.empty()) disturb_start_index = all_index;
+
         // If error is high enough, this is an observation of a disturbance.
         states.push_back(pos);
         controls.push_back(ctl_vel);
         errors.push_back(error);
         time_steps.push_back(time_step);
-        NODELET_ERROR_STREAM("  x: " << states.back().transpose() << ", u: " << controls.back().transpose()
-                                     << ", e: " << errors.back().transpose() << ", ||e||" << errors.back().norm()
-                                     << ", time_step: " << time_steps.back());
+        // NODELET_ERROR_STREAM("  x: " << states.back().transpose() << ", u: " << controls.back().transpose()
+        //                              << ", e: " << errors.back().transpose() << ", ||e||" << errors.back().norm()
+        //                              << ", time_step: " << time_steps.back());
       } else {
-        NODELET_ERROR_STREAM("At index " << i << "/" << req.control_history.desired_pose.size() - 2 << ": error of "
-                                         << error.norm() << " below threshold; clearing " << states.size()
-                                         << " examples so far...");
+        if (!states.empty()) {
+          NODELET_ERROR_STREAM("At index " << i << "/" << req.control_history.desired_pose.size() - 2 << ": error of "
+                                           << error.norm() << " below threshold; clearing " << states.size()
+                                           << " examples so far...");
+        }
         // Make sure only contiguous disturbances are used to train the model.
         states.clear();
         controls.clear();
         errors.clear();
         time_steps.clear();
       }
+
+      all_states.push_back(pos);
+      all_controls.push_back(ctl_vel);
+      all_errors.push_back(error);
+      all_time_steps.push_back(time_step);
+      all_index++;
     }
+
+    // For visualization of the data.
+    for (const auto& state : states) {
+      geometry_msgs::Point p;
+      p.x = state(0);
+      p.y = state(1);
+      p.z = -0.674614;
+      nonzero_discrepancy_datapoints_.push_back(p);
+    }
+
+    // Here were add some "zero disturbance" training examples that occur before the disturbance is observed, to give a
+    // better idea of the local disturbance function.
+    // TODO(eratner) Some parameters here that shouldn't be hard-coded
+    // const double buffer_dist = 0.20;
+    const double buffer_dist = 0.10;
+    int num_zero_added = 0;
+    int i = disturb_start_index - 1;
+    while (i >= 0) {
+      if ((all_states[i] - all_states[disturb_start_index]).norm() < buffer_dist) {
+        states.push_back(all_states[i]);
+        controls.push_back(all_controls[i]);
+        errors.push_back(Eigen::Vector2d::Zero());
+        time_steps.push_back(all_time_steps[i]);
+        // NODELET_ERROR_STREAM("  state: " << all_states[i].transpose() << ", control: " << all_controls[i].transpose()
+        //                                  << ", err: " << all_errors[i].transpose()
+        //                                  << ", time step: " << all_time_steps[i]);
+
+        // For visualization of the data.
+        geometry_msgs::Point p;
+        p.x = all_states[i](0);
+        p.y = all_states[i](1);
+        p.z = -0.674614;
+        zero_discrepancy_datapoints_.push_back(p);
+
+        num_zero_added++;
+      }
+      i--;
+    }
+    NODELET_ERROR_STREAM("Added " << num_zero_added << " data points with zero disturbance");
 
     NODELET_ERROR_STREAM("Before preprocessing, " << states.size() << " training examples");
     std::vector<Eigen::Vector4d> training_inputs;
@@ -732,16 +816,37 @@ bool PlannerInterface::ReportExecutionError(ReportExecutionError::Request& req, 
     PreprocessTrainingData(states, controls, errors, time_steps, training_inputs, targets_x, targets_y);
     NODELET_ERROR_STREAM("After preprocessing, " << training_inputs.size() << " training examples");
 
-    Clock train_clock;
-    train_clock.Start();
+    for (const auto& state : states) {
+      // Add to the data set all (x, y) where there is a disturbance.
+      env_data_.points_.push_back(Environment::Dataset::Point(state(0), state(1)));
+    }
 
-    // Update the GPs with the new training data.
-    dynamics_->GetDisturbances()[0].Train(training_inputs, targets_x);
-    dynamics_->GetDisturbances()[1].Train(training_inputs, targets_y);
+    // Clock train_clock;
+    // train_clock.Start();
 
-    train_clock.Stop();
-    Train_time_sec_.push_back(train_clock.GetElapsedTimeSec());
-    data_set_size_.push_back(dynamics_->GetDisturbances()[0].GetNumTrainingInputs());
+    // // Update the GPs with the new training data.
+    // dynamics_->GetDisturbances()[0].Train(training_inputs, targets_x);
+    // dynamics_->GetDisturbances()[1].Train(training_inputs, targets_y);
+
+    // train_clock.Stop();
+    // Train_time_sec_.push_back(train_clock.GetElapsedTimeSec());
+    // data_set_size_.push_back(dynamics_->GetDisturbances()[0].GetNumTrainingInputs());
+
+    Clock mgr_train_clock;
+    mgr_train_clock.Start();
+    disturbance_model_mgr_.TrainModels(training_inputs, targets_x, targets_y);
+    mgr_train_clock.Stop();
+    NODELET_ERROR_STREAM("Mgr train time: " << mgr_train_clock.GetElapsedTimeSec() << " ("
+                                            << disturbance_model_mgr_.GetNumModels() << " models)");
+    Train_time_sec_.push_back(mgr_train_clock.GetElapsedTimeSec());
+    int total_data_set_size = 0;
+    for (int i = 0; i < disturbance_model_mgr_.GetNumModels(); ++i) {
+      auto models = disturbance_model_mgr_.GetDisturbanceModels(i);
+      total_data_set_size += models.first->GetNumTrainingInputs();
+    }
+    data_set_size_.push_back(total_data_set_size);
+
+    VisualizeDiscrepancyData();
 
     //////////////////////////////////////////////////////////////////////////////
     // For testing.
@@ -895,6 +1000,13 @@ bool PlannerInterface::ClearExecutionErrors(std_srvs::Trigger::Request& req, std
 
   data_set_size_.clear();
   Train_time_sec_.clear();
+
+  env_data_.points_.clear();
+
+  zero_discrepancy_datapoints_.clear();
+  nonzero_discrepancy_datapoints_.clear();
+
+  disturbance_model_mgr_.Clear();
 
   return true;
 }
@@ -1258,6 +1370,54 @@ void PlannerInterface::PublishActionsAndPenalties(unsigned int max_depth) {
       }
     }
   }
+}
+
+void PlannerInterface::VisualizeDiscrepancyData() {
+  // Visualize the non-zero discrepancies in red.
+  visualization_msgs::Marker nonzero_msg;
+  nonzero_msg.header.frame_id = std::string(FRAME_NAME_WORLD);
+  nonzero_msg.ns = "/mob/ellis_planner/discrepancies/nonzero";
+  nonzero_msg.id = 0;
+  nonzero_msg.type = visualization_msgs::Marker::SPHERE_LIST;
+  nonzero_msg.pose.position.x = 0;
+  nonzero_msg.pose.position.y = 0;
+  nonzero_msg.pose.position.z = 0;
+  nonzero_msg.pose.orientation.x = 0;
+  nonzero_msg.pose.orientation.y = 0;
+  nonzero_msg.pose.orientation.z = 0;
+  nonzero_msg.pose.orientation.w = 1;
+  nonzero_msg.color.r = 1.0;
+  nonzero_msg.color.g = 0.0;
+  nonzero_msg.color.b = 0.0;
+  nonzero_msg.color.a = 0.75;
+  nonzero_msg.scale.x = 0.01;
+  nonzero_msg.scale.y = 0.01;
+  nonzero_msg.scale.z = 0.01;
+  nonzero_msg.points = nonzero_discrepancy_datapoints_;
+  vis_pub_.publish(nonzero_msg);
+
+  // Visualize the zero discrepancies in green.
+  visualization_msgs::Marker zero_msg;
+  zero_msg.header.frame_id = std::string(FRAME_NAME_WORLD);
+  zero_msg.ns = "/mob/ellis_planner/discrepancies/zero";
+  zero_msg.id = 0;
+  zero_msg.type = visualization_msgs::Marker::SPHERE_LIST;
+  zero_msg.pose.position.x = 0;
+  zero_msg.pose.position.y = 0;
+  zero_msg.pose.position.z = 0;
+  zero_msg.pose.orientation.x = 0;
+  zero_msg.pose.orientation.y = 0;
+  zero_msg.pose.orientation.z = 0;
+  zero_msg.pose.orientation.w = 1;
+  zero_msg.color.r = 0.0;
+  zero_msg.color.g = 1.0;
+  zero_msg.color.b = 0.0;
+  zero_msg.color.a = 0.75;
+  zero_msg.scale.x = 0.01;
+  zero_msg.scale.y = 0.01;
+  zero_msg.scale.z = 0.01;
+  zero_msg.points = zero_discrepancy_datapoints_;
+  vis_pub_.publish(zero_msg);
 }
 
 YAML::Node PlannerInterface::ProfilingToYaml() {

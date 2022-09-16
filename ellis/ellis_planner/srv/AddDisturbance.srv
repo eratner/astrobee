@@ -1,0 +1,13 @@
+# Copyright 2022 Ellis Ratner (eratner@berkeley.edu)
+
+# Center of the region.
+geometry_msgs/Point center
+
+# Size of the region.
+geometry_msgs/Point size
+
+# The wrench (force and torque) of the disturbance.
+geometry_msgs/Wrench wrench
+
+---
+bool success

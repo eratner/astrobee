@@ -86,7 +86,9 @@ Environment::Environment()
       goal_ang_tol_(1e-1),
       use_weighted_penalty_(false),
       dynamics_(nullptr),
-      nominal_lin_vel_(0.1) {
+      nominal_lin_vel_(0.1),
+      data_(nullptr),
+      disturbance_model_mgr_(nullptr) {
   // Robot is about 0.32 m x 0.32 m (TODO(eratner) shouldn't hard code this).
   robot_collision_object_ = new RectangleCollisionObject("robot", 0.0, 0.0, 0.0, 0.4, 0.4);
 }
@@ -106,6 +108,12 @@ void Environment::Clear() {
 
   states_.clear();
   discrete_state_to_id_.clear();
+  prof_.Reset();
+
+  if (data_) {
+    delete data_;
+    data_ = nullptr;
+  }
 }
 
 State::Ptr Environment::GetState(unsigned int state_id) {
@@ -139,8 +147,9 @@ State::Ptr Environment::GetState(double x, double y, double yaw) {
 
 bool Environment::IsGoal(const State::Ptr state) const {
   double dist_to_goal = std::sqrt(std::pow(state->GetX() - goal_x_, 2) + std::pow(state->GetY() - goal_y_, 2));
-  double angle_to_goal = AngularDist(state->GetYaw(), goal_yaw_);
-  return (dist_to_goal <= goal_pos_tol_ && std::abs(angle_to_goal) < goal_ang_tol_);
+  return (dist_to_goal <= goal_pos_tol_);
+  // double angle_to_goal = AngularDist(state->GetYaw(), goal_yaw_);
+  // return (dist_to_goal <= goal_pos_tol_ && std::abs(angle_to_goal) < goal_ang_tol_);
 }
 
 void Environment::SetGoal(double x, double y, double yaw) {
@@ -426,14 +435,87 @@ std::vector<Eigen::Vector2d> Environment::GetOpenLoopControls(const State::Ptr s
   // return std::vector<Eigen::Vector2d>(static_cast<int>(dist / (nominal_lin_vel_ * time_step)), ctl);
 }
 
+// double Environment::GetControlLevelPenalty(const State::Ptr state, const Action& action,
+//                                            unsigned int num_samples) const {
+//   prof_.GetControlLevelPenalty_calls++;
+//   ScopedClock clock(&prof_.GetControlLevelPenalty_time_sec);
+
+//   if (!dynamics_ || dynamics_->GetDisturbances()[0].GetNumTrainingInputs() == 0) return 0.0;
+
+//   if (std::abs(action.change_in_x_) < 1e-6 && std::abs(action.change_in_y_) < 1e-6) return 0.0;
+
+//   // TODO(eratner) Experimental!
+//   if (data_) {
+//     // Check if we are close to any previously observed disturbances; if not, skip this!
+//     std::vector<std::pair<std::uint32_t, double>> matches;
+//     const double search_radius = 0.2;
+//     nanoflann::SearchParams params;
+//     double query_point[2] = {state->GetX(), state->GetY()};
+//     std::size_t num_matches = data_->radiusSearch(query_point, search_radius, matches, params);
+//     if (num_matches == 0) {
+//       // Skip!
+//       return 0;
+//     }
+//   }
+
+//   auto controls = GetOpenLoopControls(state, action);
+
+//   Eigen::Vector2d start_state;
+//   start_state << state->GetX(), state->GetY();
+
+//   Eigen::Vector2d end_state;
+//   end_state << state->GetX() + action.change_in_x_, state->GetY() + action.change_in_y_;
+
+//   std::vector<Eigen::Vector2d> pred_mean;
+//   std::vector<Eigen::Matrix<double, 2, 2>> pred_cov;
+//   prof_.GetControlLevelPenalty_Predict_calls++;
+//   Clock predict_clock;
+//   predict_clock.Start();
+//   dynamics_->Predict(start_state, controls, pred_mean, pred_cov);
+//   predict_clock.Stop();
+//   prof_.GetControlLevelPenalty_Predict_time_sec += predict_clock.GetElapsedTimeSec();
+
+//   Clock sampling_clock;
+//   sampling_clock.Start();
+//   auto samples = MultivariateNormal<2>::Sample(pred_mean.back(), pred_cov.back(), num_samples);
+
+//   // const double discrepancy_thresh = 0.075;  // TODO(eratner) Make a parameter
+//   const double discrepancy_thresh = 0.05;  // TODO(eratner) Make a parameter
+//   int count = 0;
+//   for (const auto& sample : samples) {
+//     double error = (end_state - sample).norm();
+//     if (error > discrepancy_thresh) {
+//       count++;
+//     }
+//   }
+//   double prob_discr = static_cast<double>(count) / num_samples;
+
+//   sampling_clock.Stop();
+//   prof_.GetControlLevelPenalty_sampling_time_sec += sampling_clock.GetElapsedTimeSec();
+
+//   return (prob_discr * exec_error_params_.penalty_);
+// }
+
 double Environment::GetControlLevelPenalty(const State::Ptr state, const Action& action,
                                            unsigned int num_samples) const {
   prof_.GetControlLevelPenalty_calls++;
   ScopedClock clock(&prof_.GetControlLevelPenalty_time_sec);
 
-  if (!dynamics_ || dynamics_->GetDisturbances()[0].GetNumTrainingInputs() == 0) return 0.0;
+  if (!disturbance_model_mgr_) {
+    // This shouldn't happen!
+    return 0.0;
+  }
 
   if (std::abs(action.change_in_x_) < 1e-6 && std::abs(action.change_in_y_) < 1e-6) return 0.0;
+
+  // TODO(eratner) Make the max distance a parameter
+  int model_index = disturbance_model_mgr_->DisturbanceModelIndexAt(state->GetX(), state->GetY(), 0.2);
+  if (model_index < 0) {
+    // No disturbance model.
+    return 0.0;
+  }
+  auto model_x_and_y = disturbance_model_mgr_->GetDisturbanceModels(model_index);
+  std::array<DisturbanceModelManager::DisturbanceModel*, 2> models = {model_x_and_y.first, model_x_and_y.second};
 
   auto controls = GetOpenLoopControls(state, action);
 
@@ -448,7 +530,7 @@ double Environment::GetControlLevelPenalty(const State::Ptr state, const Action&
   prof_.GetControlLevelPenalty_Predict_calls++;
   Clock predict_clock;
   predict_clock.Start();
-  dynamics_->Predict(start_state, controls, pred_mean, pred_cov);
+  dynamics_->Predict(start_state, controls, pred_mean, pred_cov, models);
   predict_clock.Stop();
   prof_.GetControlLevelPenalty_Predict_time_sec += predict_clock.GetElapsedTimeSec();
 
@@ -494,6 +576,17 @@ void Environment::SetNominalLinVel(double vel) { nominal_lin_vel_ = vel; }
 bool Environment::UseControlLevelPenalty() const { return use_control_level_penalty_; }
 
 void Environment::SetUseControlLevelPenalty(bool use) { use_control_level_penalty_ = use; }
+
+void Environment::SetDisturbanceModelManager(DisturbanceModelManager* mgr) { disturbance_model_mgr_ = mgr; }
+
+Environment::Profiling::Profiling()
+    : GetOutcome_calls(0),
+      GetOutcome_time_sec(0.0),
+      GetControlLevelPenalty_calls(0),
+      GetControlLevelPenalty_time_sec(0.0),
+      GetControlLevelPenalty_Predict_calls(0),
+      GetControlLevelPenalty_Predict_time_sec(0.0),
+      GetControlLevelPenalty_sampling_time_sec(0.0) {}
 
 void Environment::Profiling::Reset() {
   GetOutcome_calls = 0;

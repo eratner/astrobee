@@ -12,5 +12,13 @@ geometry_msgs/Pose pose
 # Size of the obstacle.
 geometry_msgs/Point size
 
+# If set to true, obstacle can move.
+bool moveable
+
+# The following parameters only apply to moveable obstacles.
+float64 mass
+float64 restitution_coeff
+float64 friction_coeff
+
 ---
 bool success
